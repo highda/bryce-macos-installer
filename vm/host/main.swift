@@ -218,6 +218,7 @@ func makeConfiguration(_ o: Options, display: Display, control: Pipe, fromGuest:
     let boot = VZLinuxBootLoader(kernelURL: o.runtime.appendingPathComponent("Image"))
     boot.commandLine = "console=hvc0 root=/dev/vda ro rootwait init=/usr/local/sbin/bryce-init panic=10 bryce.uid=\(getuid())"
         + " bryce.scale=\(display.pixelScale) bryce.kbd=\(Keyboard.effective())"
+        + " bryce.time=\(Int(Date().timeIntervalSince1970))"        // the VM has no clock of its own
         + (Prefs.commandAsControl ? " bryce.cmdctrl=1" : "")
         + (Prefs.pendingResets.isEmpty ? "" : " bryce.reset=" + Prefs.pendingResets.joined(separator: ","))
         + (o.debug ? " bryce.debug=1" : " quiet")

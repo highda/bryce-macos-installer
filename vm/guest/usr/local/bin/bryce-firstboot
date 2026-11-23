@@ -8,6 +8,10 @@ tell() { echo "$*" > /dev/hvc1 2>/dev/null; }      # message to the Mac app
 fail() { log "ERROR: $1"; tell "error $1"; exit 1; }
 arg() { sed -n "s/.*$1=\([^ ]*\).*/\1/p" /proc/cmdline; }
 
+# The VM has no clock of its own: the Mac app passes the current time.
+t=$(arg bryce.time)
+[ -n "$t" ] && date -s "@$t" >/dev/null && log "clock set to $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
+
 # Same UID as the Mac user, so files in the shared folder are writable.
 uid=$(arg bryce.uid)
 if [ -n "$uid" ] && [ "$(id -u bryce)" != "$uid" ]; then
