@@ -1,0 +1,14 @@
+[Unit]
+Description=Bryce 3D session (Xorg + Openbox + Bryce)
+After=systemd-udev-settle.service systemd-user-sessions.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bryce-session
+Restart=no
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

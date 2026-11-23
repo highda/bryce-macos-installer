@@ -1,0 +1,30 @@
+#!/bin/bash
+# Reads commands from the Mac app on /dev/hvc1 (second virtio console port).
+#   kbd LAYOUT [VARIANT]   switch the keyboard layout to match macOS
+export DISPLAY=:0
+# bryce.cmdctrl=1: the Mac's Command key acts as Ctrl (so Cmd-C/V/S work in Bryce).
+opt=""
+grep -qw bryce.cmdctrl=1 /proc/cmdline && opt="-option altwin:ctrl_win"
+setkbd() {
+  setxkbmap -option ""
+  setxkbmap -model pc105 -layout "$1" ${2:+-variant "$2"} $opt 2>/dev/null \
+    || setxkbmap -model pc105 -layout "$1" $opt 2>/dev/null \
+    || setxkbmap -model pc105 -layout us $opt
+  echo "[bryce-control] keyboard: $1 ${2:-} ${opt}"
+}
+# Initial layout from the kernel command line: bryce.kbd=cz or bryce.kbd=de:mac
+k=$(sed -n 's/.*bryce\.kbd=\([^ ]*\).*/\1/p' /proc/cmdline)
+[ -n "$k" ] && setkbd "${k%%:*}" "$([ "$k" != "${k#*:}" ] && echo "${k#*:}")"
+[ -c /dev/hvc1 ] || exit 0
+stty -F /dev/hvc1 raw -echo 2>/dev/null
+exec 3</dev/hvc1
+while true; do
+  read -r cmd a b <&3 || { sleep 1; continue; }
+  case "$cmd" in
+    kbd) setkbd "$a" "$b" ;;
+    # Development only (kernel option bryce.debug=1): run a command as root,
+    # output to the VM console log.
+    sh)  grep -qw bryce.debug=1 /proc/cmdline || continue
+         { echo "[bryce-control] \$ $a $b"; bash -c "$a $b" 2>&1 | sed 's/^/[sh] /'; } > /dev/hvc0 ;;
+  esac
+done

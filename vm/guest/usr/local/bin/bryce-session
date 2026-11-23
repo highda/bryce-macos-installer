@@ -1,0 +1,45 @@
+#!/bin/bash
+# Runs as root from bryce-session.service: prepares disks (bryce-firstboot),
+# starts Xorg on the virtio-gpu display, then Openbox + Bryce as user bryce.
+# When Bryce exits, the VM powers off (and the Mac app closes).
+set -u
+log() { echo "[bryce-session] $*" > /dev/hvc0 2>/dev/null; echo "[bryce-session] $*"; }
+
+if ! /usr/local/bin/bryce-firstboot; then
+  log "first boot failed, powering off"; sync; echo exit > /dev/hvc1; sleep 1; poweroff -f; exit 1
+fi
+
+for _ in $(seq 50); do [ -e /dev/dri/card0 ] && break; sleep 0.1; done
+Xorg :0 vt1 -nolisten tcp -novtswitch -s 0 -dpms >/var/log/bryce-xorg.log 2>&1 &
+for _ in $(seq 100); do [ -S /tmp/.X11-unix/X0 ] && break; sleep 0.1; done
+if [ ! -S /tmp/.X11-unix/X0 ]; then
+  log "ERROR: Xorg did not start. dri: $(ls /dev/dri 2>&1 | tr '\n' ' ')"
+  grep -E '\(EE\)|Fatal' /var/log/bryce-xorg.log 2>/dev/null | head -n 15 | sed 's/^/[xorg] /' > /dev/hvc0
+  tail -n 8 /var/log/bryce-xorg.log 2>/dev/null | sed 's/^/[xorg] /' > /dev/hvc0
+fi
+# Crisp scaling (bryce.scale=k) is applied by bryce-launch once the session
+# (Openbox) runs: before that Xorg accepts the transform but doesn't apply it.
+/usr/local/bin/bryce-control >/var/log/bryce-control.log 2>&1 &
+# Clipboard shared with macOS (Spice agent port from the Mac app). -X: our
+# session doesn't go through logind, so don't ask it which session is active.
+mkdir -p /run/spice-vdagentd
+spice-vdagentd -X >/var/log/spice-vdagentd.log 2>&1 &
+/usr/local/bin/bryce-input >/var/log/bryce-input.log 2>&1 &
+
+su - bryce -c 'export DISPLAY=:0
+  xsetroot -solid "#202020"
+  openbox --config-file /etc/bryce/openbox/rc.xml >/tmp/openbox.log 2>&1 &
+  spice-vdagent -x >/tmp/spice-vdagent.log 2>&1 &
+  /usr/local/bin/bryce-launch'
+log "Bryce exited, shutting down"
+# Quick, safe shutdown: flush and unmount the data, make every filesystem
+# read-only, tell the Mac app we're done, then power off directly. (systemd's
+# full shutdown path hit a kernel oops in a BPF device filter on this setup.)
+sync
+umount /home/bryce/projects 2>/dev/null
+umount /data 2>/dev/null || mount -o remount,ro /data
+echo u > /proc/sysrq-trigger
+sync
+echo exit > /dev/hvc1
+sleep 1
+poweroff -f

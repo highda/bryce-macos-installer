@@ -1,0 +1,81 @@
+#!/bin/bash
+# Runs as root before the display starts. Every boot: match the Mac user's
+# UID, mount the data disk and the shared Projects folder. First boot only:
+# format the data disk and unpack Bryce from the CD image.
+set -u
+log() { echo "[bryce-firstboot] $*" > /dev/hvc0 2>/dev/null; echo "[bryce-firstboot] $*"; }
+tell() { echo "$*" > /dev/hvc1 2>/dev/null; }      # message to the Mac app
+fail() { log "ERROR: $1"; tell "error $1"; exit 1; }
+arg() { sed -n "s/.*$1=\([^ ]*\).*/\1/p" /proc/cmdline; }
+
+# Same UID as the Mac user, so files in the shared folder are writable.
+uid=$(arg bryce.uid)
+if [ -n "$uid" ] && [ "$(id -u bryce)" != "$uid" ]; then
+  usermod -u "$uid" bryce && log "user bryce now has uid $uid"
+  touch /run/bryce-uid-changed
+fi
+
+# Data disk: the one labelled bryce-data, else the first blank disk (formatted now).
+data=$(blkid -L bryce-data 2>/dev/null || true)
+if [ -z "$data" ]; then
+  for d in /dev/vd[b-z]; do
+    [ -b "$d" ] || continue
+    if [ -z "$(blkid -o value -s TYPE "$d" 2>/dev/null)" ]; then
+      log "formatting data disk $d"
+      mkfs.ext4 -q -L bryce-data "$d" && data=$d && break
+    fi
+  done
+fi
+[ -n "$data" ] || fail "The data disk is missing."
+mkdir -p /data && mount -o noatime "$data" /data || fail "The data disk can't be opened."
+
+# Shared folder from the Mac (scenes and renders).
+modprobe virtiofs 2>/dev/null
+mkdir -p /home/bryce/projects
+mount -t virtiofs projects /home/bryce/projects 2>/dev/null && log "projects folder shared" || log "no projects share"
+
+# Unpack Bryce from the CD image (attached read-only as an iso9660 disk).
+if [ ! -f "/data/bryce3d/Bryce 3D.exe" ]; then
+  # The Bryce CD is a Mac/Windows hybrid, so blkid may report its HFS side:
+  # try every other disk as ISO9660 instead of trusting the detected type.
+  modprobe isofs 2>/dev/null
+  mkdir -p /mnt/cd
+  iso=""
+  for d in /dev/vd[b-z]; do
+    [ -b "$d" ] && [ "$d" != "$data" ] || continue
+    if mount -o ro -t iso9660 "$d" /mnt/cd 2>/dev/null; then iso=$d; break; fi
+  done
+  [ -n "$iso" ] || fail "Bryce 3D is not installed yet and no CD image was given."
+  log "unpacking Bryce 3D from $iso"
+  data1=$(find /mnt/cd -maxdepth 2 -iname data.1 -type f | head -n1)
+  [ -n "$data1" ] || { umount /mnt/cd; fail "This is not the Bryce 3D Windows CD (no data.1 on it)."; }
+  tmp=$(mktemp -d /data/.unpack.XXXX); mkdir -p "$tmp/out"
+  unshieldv3 extract "$data1" "$tmp/out" >/dev/null || { umount /mnt/cd; rm -rf "$tmp"; fail "The CD's data.1 archive could not be unpacked."; }
+  prog=$(find "$tmp/out" -maxdepth 2 -type d -iname prog | head -n1)
+  [ -n "$prog" ] && [ -f "$prog/Bryce 3D.exe" ] || { umount /mnt/cd; rm -rf "$tmp"; fail "Bryce 3D.exe was not found on this CD."; }
+  mkdir -p /data/bryce3d /data/cd
+  cp -a "$prog/." /data/bryce3d/
+  rel=${data1#/mnt/cd/}
+  bsdtar -cf - -C /mnt/cd --exclude "$rel" \
+      --exclude 'Adobe Acrobat Reader 3*' --exclude 'DirectX5*' --exclude 'OpenGL*' \
+      --exclude 'QuickTime Installer.EXE' --exclude 'SETUP.*' --exclude 'setup.*' --exclude '_*' . \
+    | bsdtar -xf - -C /data/cd
+  rm -rf "$tmp"; umount /mnt/cd
+  chmod -R u+rwX /data/bryce3d /data/cd
+  touch /run/bryce-uid-changed
+  log "Bryce 3D unpacked"
+fi
+# Maintenance requested in the Mac app's settings (bryce.reset=registration,prefs).
+for what in $(arg bryce.reset | tr ',' ' '); do
+  case "$what" in
+    registration) rm -f /data/bryce3d/MetaImage.dll && log "registration reset" ;;
+    prefs)        rm -f "/data/bryce3d/Bryce 3D Prefs" && log "Bryce settings reset" ;;
+  esac
+done
+
+# Report on every boot, so the Mac app knows Bryce is installed even if an
+# earlier report was missed.
+tell installed
+[ -e /run/bryce-uid-changed ] && chown -R bryce:bryce /data /home/bryce/.?* 2>/dev/null
+chown bryce:bryce /data
+exit 0

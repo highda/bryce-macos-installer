@@ -1,46 +1,76 @@
-name: Build installer
+name: Build
 
-# Every push and pull request: check the scripts and build the installer disk
-# image (downloadable from the run's artifacts).
-# Tags v*: also publish a GitHub Release with the disk image attached.
+# Every push and pull request: build the Linux runtime and the app, and keep the
+# disk image as a run artifact. Tags v*: also publish a GitHub Release.
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
 
 jobs:
-  build:
+  runtime:
+    name: Linux runtime (ARM64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the scripts
+        run: |
+          for f in vm/*.sh vm/guest/usr/local/bin/bryce-* vm/guest/usr/local/sbin/bryce-init; do
+            head -1 "$f" | grep -q python || bash -n "$f"
+          done
+          python3 -m py_compile vm/guest/usr/local/bin/bryce-input
+
+      - name: Build the runtime image
+        run: vm/build-image.sh "$RUNNER_TEMP/runtime"
+
+      - name: Pack it (root.img is sparse)
+        run: tar -C "$RUNNER_TEMP/runtime" -czSf runtime.tar.gz Image root.img SOURCES.md packages.tsv
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: runtime
+          path: runtime.tar.gz
+          compression-level: 0
+          retention-days: 7
+
+  app:
+    name: Bryce 3D.app and disk image
+    needs: runtime
     runs-on: macos-15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
 
-      - name: Check the scripts
-        run: |
-          zsh -n make-bryce-app.zsh
-          zsh -n build-installer.zsh
-          zsh make-bryce-app.zsh --help > /dev/null
-          # The CD extractor embedded in the engine must compile as JavaScript.
-          sed -n "/<<'UNSHIELD_JS'/,/^UNSHIELD_JS\$/p" make-bryce-app.zsh | sed '1d;$d' > "$RUNNER_TEMP/unshield.js"
-          osacompile -l JavaScript -o "$RUNNER_TEMP/unshield.scpt" "$RUNNER_TEMP/unshield.js"
+      - uses: actions/download-artifact@v7
+        with:
+          name: runtime
 
-      - name: Build Bryce 3D Installer
+      - name: Build the app and disk image
         run: |
-          zsh build-installer.zsh
-          # GitHub turns spaces in asset names into dots, so publish a dashed name.
-          cp "dist/Bryce 3D Installer.dmg" Bryce-3D-Installer.dmg
-          shasum -a 256 Bryce-3D-Installer.dmg | tee Bryce-3D-Installer.dmg.sha256
+          mkdir runtime && tar -C runtime -xzf runtime.tar.gz
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            export BRYCE_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            export BRYCE_VERSION="0.0.0-dev.${GITHUB_RUN_NUMBER}"
+          fi
+          vm/build-app.sh runtime dist
+          cp runtime/SOURCES.md runtime/packages.tsv dist/
+          shasum -a 256 dist/Bryce-3D.dmg | sed 's| dist/| |' | tee dist/Bryce-3D.dmg.sha256
 
       - uses: actions/upload-artifact@v7
         with:
-          name: Bryce-3D-Installer
+          name: Bryce-3D
           path: |
-            Bryce-3D-Installer.dmg
-            Bryce-3D-Installer.dmg.sha256
+            dist/Bryce-3D.dmg
+            dist/Bryce-3D.dmg.sha256
+            dist/SOURCES.md
+            dist/packages.tsv
+          compression-level: 0
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -48,6 +78,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            Bryce-3D-Installer.dmg Bryce-3D-Installer.dmg.sha256 \
-            --title "Bryce 3D Installer $GITHUB_REF_NAME" \
+            dist/Bryce-3D.dmg dist/Bryce-3D.dmg.sha256 dist/SOURCES.md dist/packages.tsv \
+            --title "Bryce 3D $GITHUB_REF_NAME" \
             --notes-file .github/release-notes.md

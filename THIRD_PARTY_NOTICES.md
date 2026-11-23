@@ -1,49 +1,30 @@
-# Third-party notices
+# Third-party software
 
-`make-bryce-app.zsh` (also bundled inside `Bryce 3D Installer.app`) contains
-JavaScript ports of the following software. Both ports are altered versions of
-the originals and are marked as such in the source.
+This repository's own code is under the MIT License ([LICENSE](LICENSE)).
 
-## unshieldv3
+**Bryce 3D** is © MetaCreations (now Corel). No part of it is included in this
+repository or in the app: the app installs Bryce from the user's own CD.
 
-* Source: https://github.com/wfr/unshieldv3 (`ISArchiveV3.cpp`, `ISArchiveV3.h`)
-* Copyright (c) 2019 Wolfgang Frisch
-* License: Apache License, Version 2.0, full text in
-  [`licenses/unshieldv3-Apache-2.0.txt`](licenses/unshieldv3-Apache-2.0.txt)
-* Changes: ported from C++ to JavaScript (run by macOS's JavaScript engine through
-  `osascript`); the archive is read into memory; path segments `.` and `..` are rejected.
+## In Bryce 3D.app
 
-## blast
+The app contains a small Linux system (the "runtime"), built from
+[`vm/rootfs.Dockerfile`](vm/rootfs.Dockerfile). Its main components:
 
-* Source: `blast.c` / `blast.h` version 1.3, as distributed with zlib (`contrib/blast`)
-  and unshieldv3
-* Changes: ported from C to JavaScript; output goes to a growing buffer instead of a
-  callback.
+| Component | License | Source |
+|---|---|---|
+| Ubuntu 24.04 (Linux kernel, systemd, Xorg, Openbox, spice-vdagent, Python and the other packages it needs) | each package's own license (GPL, LGPL, MIT, BSD and others) | https://launchpad.net/ubuntu |
+| [Hangover](https://github.com/AndreRH/hangover) 11.16: Wine for ARM64 with WoW64 | LGPL-2.1-or-later | https://github.com/AndreRH/hangover |
+| [FEX](https://github.com/FEX-Emu/FEX) (x86 translator inside Hangover) | MIT | https://github.com/FEX-Emu/FEX |
+| [Box64](https://github.com/ptitSeb/box64) (alternative translator shipped with Hangover, not used by default) | MIT | https://github.com/ptitSeb/box64 |
+| [unshieldv3](https://github.com/wfr/unshieldv3) by Wolfgang Frisch (unpacks the CD) | Apache-2.0 ([text](licenses/unshieldv3-Apache-2.0.txt)) | https://github.com/wfr/unshieldv3 |
 
-```
-Copyright (C) 2003, 2012, 2013 Mark Adler
-version 1.3, 24 Aug 2013
+* **License texts:** inside the runtime, every package keeps its license in
+  `/usr/share/doc/<package>/copyright`.
+* **Complete list** of packages and versions, with links to their source code and the
+  written offer for GPL/LGPL source: `SOURCES.md` and `packages.tsv`, attached to every
+  release and included in the app (`Bryce 3D.app/Contents/Resources/Licenses`).
 
-This software is provided 'as-is', without any express or implied
-warranty.  In no event will the author be held liable for any damages
-arising from the use of this software.
+## Used while building (not shipped)
 
-Permission is granted to anyone to use this software for any purpose,
-including commercial applications, and to alter it and redistribute it
-freely, subject to the following restrictions:
-
-1. The origin of this software must not be misrepresented; you must not
-   claim that you wrote the original software. If you use this software
-   in a product, an acknowledgment in the product documentation would be
-   appreciated but is not required.
-2. Altered source versions must be plainly marked as such, and must not be
-   misrepresented as being the original software.
-3. This notice may not be removed or altered from any source distribution.
-
-Mark Adler    madler@alumni.caltech.edu
-```
-
-## Downloaded at install time (not part of this repository)
-
-* Wine (LGPL-2.1-or-later), macOS builds by Gcenx:
-  https://github.com/Gcenx/macOS_Wine_builds
+Docker and Ubuntu's build tools (runtime image), Xcode Command Line Tools (app),
+and LLVM (stripping debug information from Wine's binaries).

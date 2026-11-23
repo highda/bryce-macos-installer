@@ -1,0 +1,21 @@
+#!/bin/sh
+# PID 1 (kernel init=): keeps the system disk read-only. Mounts an overlay with
+# the read-only disk underneath and RAM on top, switches into it and starts
+# systemd. Every boot starts from the same clean system; Bryce, the Wine prefix
+# and the registration live on the separate data disk.
+mount -t proc proc /proc
+mount -t devtmpfs dev /dev 2>/dev/null
+modprobe overlay
+mount -t tmpfs -o mode=755,size=1g tmpfs /.overlay
+mkdir -p /.overlay/upper /.overlay/work /.overlay/root
+if mount -t overlay overlay -o lowerdir=/,upperdir=/.overlay/upper,workdir=/.overlay/work /.overlay/root; then
+  mkdir -p /.overlay/root/.lower
+  umount /dev 2>/dev/null
+  umount /proc
+  cd /.overlay/root
+  pivot_root . .lower
+  exec chroot . /sbin/init "$@"
+fi
+echo "bryce-init: overlay failed, booting the read-only system as is" > /dev/console
+umount /proc
+exec /sbin/init "$@"

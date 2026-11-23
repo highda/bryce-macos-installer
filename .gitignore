@@ -16,3 +16,7 @@ dist/
 
 # macOS
 .DS_Store
+
+# Runtime image build output and VM disks
+vm/out/
+*.img

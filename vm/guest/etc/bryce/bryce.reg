@@ -1,0 +1,17 @@
+REGEDIT4
+
+[HKEY_CURRENT_USER\Software\Wine]
+"Version"="winxp"
+
+[HKEY_CURRENT_USER\Software\Wine\X11 Driver]
+"GrabPointer"="N"
+
+[HKEY_LOCAL_MACHINE\Software\Wine\Drives]
+"d:"="cdrom"
+"e:"="hd"
+
+[HKEY_CLASSES_ROOT\.br3]
+@="Bryce3Dfile"
+
+[HKEY_CLASSES_ROOT\Bryce3Dfile\Shell\open\command]
+@="\"C:\\Bryce3D\\Bryce 3D.exe\" \"%1\""
