@@ -157,12 +157,22 @@ class PointerFixer:
 
 
 def find_pointer():
+    """The Mac's pointer: Apple's virtual USB digitizer. Never a device added
+    by other software (e.g. the clipboard agent's "spice vdagent tablet")."""
     for _ in range(100):
+        fallback = None
         for path in evdev.list_devices():
             dev = evdev.InputDevice(path)
             caps = dev.capabilities()
-            if E.EV_ABS in caps and E.EV_KEY in caps and E.BTN_LEFT in caps[E.EV_KEY]:
+            if not (E.EV_ABS in caps and E.EV_KEY in caps and E.BTN_LEFT in caps[E.EV_KEY]):
+                continue
+            if "spice" in dev.name.lower():
+                continue
+            if "digitizer" in dev.name.lower():
                 return dev
+            fallback = fallback or dev
+        if fallback:
+            return fallback
         time.sleep(0.1)
     return None
 

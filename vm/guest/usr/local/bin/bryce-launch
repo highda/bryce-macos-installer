@@ -35,10 +35,13 @@ if [ -n "$k" ] && [ "$k" -gt 1 ]; then
   size() { xrandr 2>/dev/null | sed -n 's/.*current \([0-9]*\) x \([0-9]*\).*/\1x\2/p'; }
   out=$(xrandr | awk '/ connected/ {print $1; exit}')
   f=$(awk "BEGIN {printf \"%.10f\", 1/$k}")
+  # Done once 640x480 has held for a second (the clipboard agent may reset
+  # the display once while it connects).
+  ok=0
   for i in $(seq 40); do
-    xrandr --output "$out" --transform "$f,0,0,0,$f,0,0,0,1" --filter nearest 2>/dev/null
-    [ "$(size)" = 640x480 ] && break
-    sleep 0.25
+    [ "$(size)" = 640x480 ] || xrandr --output "$out" --transform "$f,0,0,0,$f,0,0,0,1" --filter nearest 2>/dev/null
+    if [ "$(size)" = 640x480 ]; then ok=$((ok + 1)); [ $ok -ge 3 ] && break; else ok=0; fi
+    sleep 0.5
   done
   log "display ${k}x nearest: screen $(size) (attempt $i)"
 fi

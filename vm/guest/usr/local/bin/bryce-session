@@ -23,13 +23,17 @@ fi
 # Clipboard shared with macOS (Spice agent port from the Mac app). -X: our
 # session doesn't go through logind, so don't ask it which session is active.
 mkdir -p /run/spice-vdagentd
-spice-vdagentd -X >/var/log/spice-vdagentd.log 2>&1 &
+# -f -u FILE: "fake" uinput, so the daemon doesn't add its own tablet device
+# (it would compete with the Mac's pointer; bryce-input owns pointer input).
+spice-vdagentd -X -f -u /run/spice-vdagentd/no-uinput >/var/log/spice-vdagentd.log 2>&1 &
 /usr/local/bin/bryce-input >/var/log/bryce-input.log 2>&1 &
 
 su - bryce -c 'export DISPLAY=:0
   xsetroot -solid "#202020"
-  openbox --config-file /etc/bryce/openbox/rc.xml >/tmp/openbox.log 2>&1 &
+  # Clipboard agent first: when it connects it applies the display setup from
+  # the Mac once, which would undo the crisp scaling if that came earlier.
   spice-vdagent -x >/tmp/spice-vdagent.log 2>&1 &
+  openbox --config-file /etc/bryce/openbox/rc.xml >/tmp/openbox.log 2>&1 &
   /usr/local/bin/bryce-launch'
 log "Bryce exited, shutting down"
 # Quick, safe shutdown: flush and unmount the data, make every filesystem
