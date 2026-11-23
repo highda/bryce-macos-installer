@@ -1,0 +1,18 @@
+# Your Bryce 3D CD: never commit it (copyrighted, and large)
+*.iso
+*.cdr
+*.toast
+*.dmg
+*.bin
+*.cue
+
+# Build output (made by build-installer.zsh / the GitHub Action)
+dist/
+*.app/
+*.zip
+
+# Wine engine downloads (when passed with --wine-tarball)
+*.tar.xz
+
+# macOS
+.DS_Store

@@ -1,0 +1,53 @@
+name: Build installer
+
+# Every push and pull request: check the scripts and build the installer disk
+# image (downloadable from the run's artifacts).
+# Tags v*: also publish a GitHub Release with the disk image attached.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the scripts
+        run: |
+          zsh -n make-bryce-app.zsh
+          zsh -n build-installer.zsh
+          zsh make-bryce-app.zsh --help > /dev/null
+          # The CD extractor embedded in the engine must compile as JavaScript.
+          sed -n "/<<'UNSHIELD_JS'/,/^UNSHIELD_JS\$/p" make-bryce-app.zsh | sed '1d;$d' > "$RUNNER_TEMP/unshield.js"
+          osacompile -l JavaScript -o "$RUNNER_TEMP/unshield.scpt" "$RUNNER_TEMP/unshield.js"
+
+      - name: Build Bryce 3D Installer
+        run: |
+          zsh build-installer.zsh
+          # GitHub turns spaces in asset names into dots, so publish a dashed name.
+          cp "dist/Bryce 3D Installer.dmg" Bryce-3D-Installer.dmg
+          shasum -a 256 Bryce-3D-Installer.dmg | tee Bryce-3D-Installer.dmg.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bryce-3D-Installer
+          path: |
+            Bryce-3D-Installer.dmg
+            Bryce-3D-Installer.dmg.sha256
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            Bryce-3D-Installer.dmg Bryce-3D-Installer.dmg.sha256 \
+            --title "Bryce 3D Installer $GITHUB_REF_NAME" \
+            --notes-file .github/release-notes.md
