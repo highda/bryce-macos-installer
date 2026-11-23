@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the scripts
         run: |
@@ -35,7 +35,7 @@ jobs:
           cp "dist/Bryce 3D Installer.dmg" Bryce-3D-Installer.dmg
           shasum -a 256 Bryce-3D-Installer.dmg | tee Bryce-3D-Installer.dmg.sha256
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Bryce-3D-Installer
           path: |
