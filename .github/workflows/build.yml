@@ -5,10 +5,16 @@ name: Build
 
 on:
   push:
-    branches: [main, v2]
+    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+
+# A newer push to the same branch or pull request replaces a build still
+# running or queued (macOS runners are scarce). Release (tag) builds always finish.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   runtime:
