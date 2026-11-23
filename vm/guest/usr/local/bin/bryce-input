@@ -98,14 +98,36 @@ class Injector:
         self.d.sync()
 
 
+def tell_host(msg):
+    """Message to the Mac app over the control port (/dev/hvc1)."""
+    try:
+        with open("/dev/hvc1", "w") as f:
+            f.write(msg + "\n")
+    except OSError:
+        pass
+
+
 class PointerFixer:
     def __init__(self, inj):
         self.inj = inj
         self.client = None
         self.sent = None
-        self.relative = False
+        self._relative = False
         self.press = None
         self.menu = None
+
+    # While a relative drag runs, the Mac app hides its cursor and moves it
+    # back to the middle of the window whenever it nears an edge, so drags
+    # never stop at the window or screen edge.
+    @property
+    def relative(self):
+        return self._relative
+
+    @relative.setter
+    def relative(self, on):
+        if on != self._relative:
+            self._relative = on
+            tell_host("rel 1" if on else "rel 0")
 
     def out(self, mask, x, y):
         self.sent = self.inj.send(mask, x, y)
@@ -152,7 +174,12 @@ class PointerFixer:
             if not self.relative and (sx, sy) != self.sent:
                 self.relative = True
             if self.relative:
-                return self.out(mask, sx + x - prev_client[0], sy + y - prev_client[1])
+                dx, dy = x - prev_client[0], y - prev_client[1]
+                # A jump this large is the Mac app re-centring its cursor
+                # (see above), not real motion: skip it.
+                if abs(dx) > inj.w // 4 or abs(dy) > inj.h // 4:
+                    return
+                return self.out(mask, sx + dx, sy + dy)
         return self.out(mask, x, y)
 
 

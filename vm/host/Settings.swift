@@ -57,7 +57,8 @@ struct SettingsView: View {
     private var choices: [CGFloat] { Display.scaleChoices(screen: NSScreen.main) }
     private func label(_ s: CGFloat) -> String {
         let n = s == s.rounded() ? String(format: "%.0f", s) : String(format: "%.1f", s)
-        return "\(n)×  (\(Int(640 * s)) × \(Int(480 * s)))"
+        let fits = Display.fitsInWindow(s, screen: NSScreen.main)
+        return "\(n)×  (\(Int(640 * s)) × \(Int(480 * s)))" + (fits ? "" : "  · full screen")
     }
 
     var body: some View {

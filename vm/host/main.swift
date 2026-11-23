@@ -71,10 +71,18 @@ struct Display {
     }
 
     /// Whole-pixel scales (0.5 steps on Retina) from 1x up to what fits the screen.
+    /// Whole-pixel scales (0.5 steps on Retina) from 1x up to what fits the
+    /// screen, and always up to at least 2x (larger sizes use full screen).
     static func scaleChoices(screen: NSScreen?) -> [CGFloat] {
         let step = 1 / (screen?.backingScaleFactor ?? 2)
-        let top = automaticScale(screen: screen)
+        let top = max(automaticScale(screen: screen), 2)
         return stride(from: max(1, step), through: top, by: step).map { $0 }
+    }
+
+    /// True if a window of this scale (title bar included) fits on the screen.
+    static func fitsInWindow(_ scale: CGFloat, screen: NSScreen?) -> Bool {
+        let f = screen?.visibleFrame.size ?? NSSize(width: 1280, height: 960)
+        return CGFloat(base.w) * scale <= f.width && CGFloat(base.h) * scale + 32 <= f.height
     }
 
     init(screen: NSScreen?) {
@@ -289,6 +297,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
 
     var dataLock: Int32 = -1
     var options = Options()
+    var vmView: VZVirtualMachineView?
+    var relativeDrag = false
+    var pressLocation: NSPoint?
     var guestError: String?
     var quitting = false
 
@@ -331,6 +342,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit Bryce 3D", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
+        let viewItem = NSMenuItem()
+        main.addItem(viewItem)
+        let viewMenu = NSMenu(title: "View")
+        let fs = viewMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        fs.keyEquivalentModifierMask = [.control, .command]
+        viewItem.submenu = viewMenu
         let winItem = NSMenuItem()
         main.addItem(winItem)
         let winMenu = NSMenu(title: "Window")
@@ -426,12 +443,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         let view = VZVirtualMachineView()
         view.virtualMachine = vm
         view.capturesSystemKeys = true
-        // Fixed size: the VM's pixels map 1:1 to the window's, so nothing gets blurred.
-        let w = NSWindow(contentRect: NSRect(origin: .zero, size: display.points),
-                         styleMask: [.titled, .closable, .miniaturizable],
+        // Fixed size: the VM's pixels map 1:1 to the screen's, so nothing gets
+        // blurred. In full screen it is centred on black (and cropped if larger).
+        let size = display.points
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.black.cgColor
+        view.frame = container.bounds
+        view.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin, .maxYMargin]
+        container.addSubview(view)
+        vmView = view
+
+        let w = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                         styleMask: [.titled, .closable, .miniaturizable, .resizable],
                          backing: .buffered, defer: false)
         w.title = "Bryce 3D"
-        w.contentView = view
+        w.contentView = container
+        w.contentMinSize = size
+        w.contentMaxSize = size
+        w.collectionBehavior = [.fullScreenPrimary]
         w.delegate = self
         w.isReleasedWhenClosed = false
         w.center()
@@ -439,6 +469,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         w.makeFirstResponder(view)
         window = w
         NSApp.activate(ignoringOtherApps: true)
+        if !Display.fitsInWindow(display.pointScale, screen: NSScreen.main) {
+            w.toggleFullScreen(nil)
+        }
+
+        // Endless drags: while the VM reports a relative drag ("rel 1"), hide
+        // the cursor and move it back to the middle whenever it nears an edge.
+        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown,
+                                                     .leftMouseDragged, .rightMouseDragged,
+                                                     .otherMouseDragged, .mouseMoved,
+                                                     .leftMouseUp, .rightMouseUp, .otherMouseUp]) { [weak self] e in
+            self?.trackPointer(e)
+            return e
+        }
 
         vm.start { result in
             if case .failure(let e) = result { fail("The virtual machine did not start: \(e.localizedDescription)") }
@@ -453,6 +496,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         } else {
             try? Data("\(Date()) \(line)\n".utf8).write(to: logURL)
         }
+        if line == "rel 1" || line == "rel 0" {
+            setRelativeDrag(line == "rel 1")
+            return
+        }
         if line == "installed" {
             FileManager.default.createFile(atPath: options.installedMarker.path, contents: nil)
             try? FileManager.default.removeItem(at: options.support.appendingPathComponent("cd-cache"))
@@ -461,6 +508,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         } else if line == "exit" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.finish() }
         }
+    }
+
+    // MARK: Endless drags
+
+    func setRelativeDrag(_ on: Bool) {
+        guard on != relativeDrag else { return }
+        relativeDrag = on
+        if on {
+            NSCursor.hide()
+        } else {
+            // Put the cursor back where the drag started, then show it.
+            if let o = pressLocation { warpCursor(to: o) }
+            NSCursor.unhide()
+        }
+    }
+
+    /// Moves the Mac cursor to a point in screen coordinates (origin bottom-left).
+    func warpCursor(to p: NSPoint) {
+        let top = NSScreen.screens.first?.frame.maxY ?? 0
+        CGWarpMouseCursorPosition(CGPoint(x: p.x, y: top - p.y))
+        CGAssociateMouseAndMouseCursorPosition(1)
+    }
+
+    func trackPointer(_ e: NSEvent) {
+        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(e.type) {
+            pressLocation = NSEvent.mouseLocation    // where a drag would start
+            return
+        }
+        guard relativeDrag, let view = vmView, let w = window, e.window == w else { return }
+        if [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(e.type) {
+            setRelativeDrag(false)              // in case "rel 0" is late
+            return
+        }
+        let area = view.visibleRect               // the part on screen (full screen may crop)
+        let p = view.convert(e.locationInWindow, from: nil)
+        let margin = min(area.width, area.height) * 0.2
+        guard p.x < area.minX + margin || p.x > area.maxX - margin ||
+              p.y < area.minY + margin || p.y > area.maxY - margin else { return }
+        // Re-centre. The VM sees one large jump and ignores it (bryce-input).
+        let mid = view.convert(NSPoint(x: area.midX, y: area.midY), to: nil)
+        warpCursor(to: w.convertPoint(toScreen: mid))
+    }
+
+    // Full screen: let the window grow to the screen, restore the fixed size after.
+    func windowWillEnterFullScreen(_ note: Notification) {
+        window?.contentMaxSize = NSSize(width: 100_000, height: 100_000)
+    }
+
+    func windowDidExitFullScreen(_ note: Notification) {
+        guard let w = window, let v = vmView else { return }
+        w.contentMaxSize = v.frame.size
+        w.setContentSize(v.frame.size)
     }
 
     // MARK: Stopping
