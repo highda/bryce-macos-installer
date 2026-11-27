@@ -40,6 +40,9 @@ fi
 if [ -d /data/quicktime ]; then
   cp -u /data/quicktime/* "$WINEPREFIX/drive_c/windows/syswow64/"
 fi
+# Bryce is started through bryce-run.exe, which loads brycefix.dll into it
+# (screen copies for drop shadows, see vm/shim/).
+cp -u /usr/lib/bryce/bryce-run.exe /usr/lib/bryce/brycefix.dll "$WINEPREFIX/drive_c/windows/syswow64/"
 win=$(basename "$DIR" | sed 's/^bryce/Bryce/; s/3d$/3D/')      # bryce3d -> Bryce3D
 ln -sfn "$DIR" "$WINEPREFIX/drive_c/$win"
 ln -sfn /data/cd "$WINEPREFIX/dosdevices/d:"
@@ -67,7 +70,7 @@ fi
 
 cd "$DIR"
 log "starting $NAME (FEX)"
-wine "C:\\$win\\$EXE" "$@" >/tmp/bryce.log 2>&1
+wine 'C:\windows\syswow64\bryce-run.exe' "C:\\$win\\$EXE" "$@" >/tmp/bryce.log 2>&1
 # Bryce has quit: end Wine's helper processes too (they never exit by
 # themselves), so the session ends and the VM powers off.
 wineserver -k

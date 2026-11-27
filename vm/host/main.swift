@@ -174,6 +174,18 @@ func fail(_ msg: String) -> Never {
     exit(1)
 }
 
+/// The VM could not be set up or started. With a CD image attached, the image
+/// is the usual suspect: suggest the folder route, which builds a fresh image.
+func failStart(_ error: Error, cd: URL?) -> Never {
+    var msg = "The virtual machine did not start: \(error.localizedDescription)"
+    if cd != nil {
+        Prefs.pendingContentCD = nil        // don't retry a content CD that can't be attached
+        msg += "\n\nmacOS could not use the CD image. Try this: open the image in Finder (or extract it), "
+            + "copy its contents to a folder, start Bryce again and choose that folder instead of the image."
+    }
+    fail(msg)
+}
+
 /// Creates a sparse disk file of the given size if it doesn't exist yet.
 func ensureSparseDisk(_ url: URL, gigabytes: UInt64) throws {
     let fm = FileManager.default
@@ -242,7 +254,21 @@ func cdImage(from src: URL, cache: URL) -> URL? {
         let out = cache.appendingPathComponent("cd.iso")
         return hdiutil(["makehybrid", "-iso", "-joliet", "-o", out.path, src.path]) ? out : nil
     } else if ["iso", "cdr", "toast"].contains(src.pathExtension.lowercased()) {
-        return src
+        // The Virtualization framework only takes disk images whose size is a
+        // multiple of 512 bytes; some CD-ripping tools write odd sizes. Pad a
+        // copy (an APFS clone, so it takes no extra space) with zeros.
+        let size = (try? fm.attributesOfItem(atPath: src.path)[.size] as? UInt64) ?? 0
+        guard size % 512 != 0 else { return src }
+        let out = cache.appendingPathComponent("cd.iso")
+        do {
+            try fm.copyItem(at: src, to: out)
+            let h = try FileHandle(forWritingTo: out)
+            try h.truncate(atOffset: (size / 512 + 1) * 512)
+            try h.close()
+            return out
+        } catch {
+            return nil
+        }
     } else {
         // Other disk images (e.g. compressed .dmg): convert to a raw CD image.
         let out = cache.appendingPathComponent("cd.cdr")
@@ -437,7 +463,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
 
         let display = Display(screen: NSScreen.main)
         let cfg: VZVirtualMachineConfiguration
-        do { cfg = try makeConfiguration(o, display: display, control: control, fromGuest: fromGuest) } catch { fail("\(error.localizedDescription)") }
+        do { cfg = try makeConfiguration(o, display: display, control: control, fromGuest: fromGuest) } catch { failStart(error, cd: o.iso ?? contentCD(o)) }
         Prefs.pendingResets = []          // handed to the VM on this boot
         let vm = VZVirtualMachine(configuration: cfg)
         vm.delegate = self
@@ -532,7 +558,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         }
 
         vm.start { result in
-            if case .failure(let e) = result { fail("The virtual machine did not start: \(e.localizedDescription)") }
+            if case .failure(let e) = result { failStart(e, cd: o.iso ?? contentCD(o)) }
         }
     }
 

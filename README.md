@@ -138,6 +138,9 @@ Bryce.app  (Swift, Apple Virtualization framework, native window,
     │   (x87 in reduced precision: same results, since Bryce runs x87 at double precision)
     ├ Bryce's windows placed by Wine itself, as on Windows, with palettes
     │   kept above their main window (bryce-stack)
+    ├ brycefix.dll, loaded into Bryce by bryce-run.exe: Bryce draws drop shadows
+    │   by copying the screen behind a dialog; Wine would return black there, so
+    │   the DLL composes that area from Bryce's windows (source in vm/shim/)
     ├ input fix for Bryce's mouse handling (endless drags, Mac-style pop-up menus)
     ├ clipboard (Spice agent) and keyboard layout from macOS
     └ data disk: Bryce, its Wine setup, registration and content CDs

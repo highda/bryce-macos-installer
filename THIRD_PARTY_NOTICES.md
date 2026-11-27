@@ -28,5 +28,7 @@ The app contains a small Linux system (the "runtime"), built from
 
 ## Used while building (not shipped)
 
-Docker and Ubuntu's build tools (runtime image), Xcode Command Line Tools (app),
-and LLVM (stripping debug information from Wine's binaries).
+Docker and Ubuntu's build tools (runtime image), MinGW-w64 (the 32-bit Windows
+helpers in `vm/shim/`; its runtime code linked into them is under permissive
+licenses, see https://www.mingw-w64.org), Xcode Command Line Tools (app), and
+LLVM (stripping debug information from Wine's binaries).

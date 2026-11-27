@@ -16,6 +16,17 @@ RUN curl -fsSL https://codeload.github.com/wfr/unshieldv3/tar.gz/${UNSHIELD_COMM
  && cmake --build /tmp/build -j"$(nproc)" \
  && install -m 755 /tmp/build/unshieldv3 /usr/local/bin/unshieldv3
 
+# brycefix.dll and bryce-run.exe (shim/): 32-bit Windows programs, built with
+# MinGW-w64. They make Bryce's "copy from the screen" (drop shadows) work.
+FROM --platform=linux/arm64 ubuntu:24.04 AS shim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc-mingw-w64-i686 \
+ && rm -rf /var/lib/apt/lists/*
+COPY shim/brycefix.c shim/bryce-run.c /src/
+RUN cd /src \
+ && i686-w64-mingw32-gcc -O2 -Wall -Werror -shared -s -o brycefix.dll brycefix.c -lgdi32 -luser32 \
+ && i686-w64-mingw32-gcc -O2 -Wall -Werror -municode -mwindows -s -o bryce-run.exe bryce-run.c
+
 FROM --platform=linux/arm64 ubuntu:24.04
 
 ARG HANGOVER_VERSION=11.16
@@ -56,6 +67,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends llvm \
 
 COPY --from=unshield /usr/local/bin/unshieldv3 /usr/local/bin/unshieldv3
 COPY --from=unshield /licenses/unshieldv3/LICENSE /usr/share/doc/unshieldv3/copyright
+COPY --from=shim /src/brycefix.dll /src/bryce-run.exe /usr/lib/bryce/
 
 # User, autostart session, machine identity.
 RUN usermod -l bryce -d /home/bryce -m ubuntu && groupmod -n bryce ubuntu \
