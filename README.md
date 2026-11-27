@@ -137,7 +137,8 @@ Bryce.app  (Swift, Apple Virtualization framework, native window,
     ├ Hangover Wine (ARM64) + FEX translating Bryce's 32-bit x86 code
     │   (x87 in reduced precision: same results, since Bryce runs x87 at double precision)
     ├ Bryce's windows placed by Wine itself, as on Windows, with palettes
-    │   kept above their main window (bryce-stack)
+    │   kept above their main window (bryce-xfix.so, preloaded into Wine,
+    │   plus bryce-stack as a safety net)
     ├ brycefix.dll, loaded into Bryce by bryce-run.exe: Bryce draws drop shadows
     │   by copying the screen behind a dialog; Wine would return black there, so
     │   the DLL composes that area from Bryce's windows (source in vm/shim/)

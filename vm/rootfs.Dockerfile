@@ -16,16 +16,18 @@ RUN curl -fsSL https://codeload.github.com/wfr/unshieldv3/tar.gz/${UNSHIELD_COMM
  && cmake --build /tmp/build -j"$(nproc)" \
  && install -m 755 /tmp/build/unshieldv3 /usr/local/bin/unshieldv3
 
-# brycefix.dll and bryce-run.exe (shim/): 32-bit Windows programs, built with
-# MinGW-w64. They make Bryce's "copy from the screen" (drop shadows) work.
+# Helpers in shim/: brycefix.dll and bryce-run.exe (32-bit Windows, MinGW-w64)
+# make Bryce's "copy from the screen" (drop shadows) work; bryce-xfix.so (Linux,
+# preloaded into Wine) keeps palettes above Bryce's main window without flicker.
 FROM --platform=linux/arm64 ubuntu:24.04 AS shim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc-mingw-w64-i686 \
+ && apt-get install -y --no-install-recommends gcc-mingw-w64-i686 gcc libc6-dev libx11-dev \
  && rm -rf /var/lib/apt/lists/*
-COPY shim/brycefix.c shim/bryce-run.c /src/
+COPY shim/brycefix.c shim/bryce-run.c shim/bryce-xfix.c /src/
 RUN cd /src \
  && i686-w64-mingw32-gcc -O2 -Wall -Werror -shared -s -o brycefix.dll brycefix.c -lgdi32 -luser32 \
- && i686-w64-mingw32-gcc -O2 -Wall -Werror -municode -mwindows -s -o bryce-run.exe bryce-run.c
+ && i686-w64-mingw32-gcc -O2 -Wall -Werror -municode -mwindows -s -o bryce-run.exe bryce-run.c \
+ && gcc -O2 -Wall -Werror -shared -fPIC -s -o bryce-xfix.so bryce-xfix.c -lX11 -ldl
 
 FROM --platform=linux/arm64 ubuntu:24.04
 
@@ -67,7 +69,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends llvm \
 
 COPY --from=unshield /usr/local/bin/unshieldv3 /usr/local/bin/unshieldv3
 COPY --from=unshield /licenses/unshieldv3/LICENSE /usr/share/doc/unshieldv3/copyright
-COPY --from=shim /src/brycefix.dll /src/bryce-run.exe /usr/lib/bryce/
+COPY --from=shim /src/brycefix.dll /src/bryce-run.exe /src/bryce-xfix.so /usr/lib/bryce/
 
 # User, autostart session, machine identity.
 RUN usermod -l bryce -d /home/bryce -m ubuntu && groupmod -n bryce ubuntu \

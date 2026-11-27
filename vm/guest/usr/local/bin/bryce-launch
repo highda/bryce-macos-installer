@@ -70,7 +70,10 @@ fi
 
 cd "$DIR"
 log "starting $NAME (FEX)"
-wine 'C:\windows\syswow64\bryce-run.exe' "C:\\$win\\$EXE" "$@" >/tmp/bryce.log 2>&1
+# bryce-xfix.so: when Wine raises Bryce's main window, it stays below its
+# palettes (no flicker; see vm/shim/bryce-xfix.c).
+LD_PRELOAD=/usr/lib/bryce/bryce-xfix.so \
+  wine 'C:\windows\syswow64\bryce-run.exe' "C:\\$win\\$EXE" "$@" >/tmp/bryce.log 2>&1
 # Bryce has quit: end Wine's helper processes too (they never exit by
 # themselves), so the session ends and the VM powers off.
 wineserver -k

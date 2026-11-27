@@ -27,3 +27,4 @@ __pycache__/
 # Compiled shim (built in the Docker image)
 vm/shim/*.dll
 vm/shim/*.exe
+vm/shim/*.so
