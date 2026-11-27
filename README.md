@@ -70,7 +70,7 @@ Text copied on the Mac can be pasted in Bryce, and the other way round.
 
 ### Full screen
 
-Use the green window button or **View › Enter Full Screen** (⌃⌘F). Bryce is shown as large as fits, centred on black. Sizes that don't fit in a window open in full screen automatically.
+Use the green window button or **View › Enter Full Screen** (⌃⌘F). Bryce is enlarged to fill the screen while keeping its 4:3 shape, with black bars at the sides on wide screens. Window sizes that don't fit your screen open in full screen automatically.
 
 ### Bryce's hidden menus and palettes
 

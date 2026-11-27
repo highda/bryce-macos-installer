@@ -356,6 +356,31 @@ func makeConfiguration(_ o: Options, display: Display, control: Pipe, fromGuest:
     return cfg
 }
 
+/// Holds the VM view: at a fixed size in a window, and in full screen as large
+/// as fits while keeping Bryce's 4:3 shape (black bars at the sides on wide
+/// screens), on whole device pixels.
+final class BryceContainer: NSView {
+    var windowSize = NSSize(width: 640, height: 480)
+    var fillsScreen = false { didSet { needsLayout = true; layoutVM() } }
+
+    override func resizeSubviews(withOldSize old: NSSize) { layoutVM() }
+    override func layout() { super.layout(); layoutVM() }
+
+    func layoutVM() {
+        guard let v = subviews.first else { return }
+        var size = windowSize
+        if fillsScreen {
+            let k = min(bounds.width / 640, bounds.height / 480)
+            let px = window?.backingScaleFactor ?? 2
+            size = NSSize(width: (640 * k * px).rounded(.down) / px, height: (480 * k * px).rounded(.down) / px)
+        }
+        let f = NSRect(x: ((bounds.width - size.width) / 2 * 2).rounded() / 2,
+                       y: ((bounds.height - size.height) / 2 * 2).rounded() / 2,
+                       width: size.width, height: size.height)
+        if v.frame != f { v.frame = f }
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVirtualMachineDelegate {
     var window: NSWindow?
     var settingsWindow: NSWindow?
@@ -513,14 +538,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         let view = VZVirtualMachineView()
         view.virtualMachine = vm
         view.capturesSystemKeys = true
-        // Fixed size: the VM's pixels map 1:1 to the screen's, so nothing gets
-        // blurred. In full screen it is centred on black (and cropped if larger).
+        // In a window: a fixed size (whole pixels per Bryce pixel). In full
+        // screen: as large as fits at 4:3, centred on black (BryceContainer).
         let size = display.points
-        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        let container = BryceContainer(frame: NSRect(origin: .zero, size: size))
+        container.windowSize = size
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.black.cgColor
         view.frame = container.bounds
-        view.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin, .maxYMargin]
         container.addSubview(view)
         vmView = view
         // The view creates its drawing layers once the guest display is up (and may
@@ -544,6 +569,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         window = w
         NSApp.activate(ignoringOtherApps: true)
         if !Display.fitsInWindow(display.pointScale, screen: NSScreen.main) {
+            // The window is larger than the screen: full screen needs it to be
+            // allowed to shrink to the screen first.
+            w.contentMinSize = NSSize(width: 320, height: 240)
             w.toggleFullScreen(nil)
         }
 
@@ -644,7 +672,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
 
     // Full screen: let the window grow to the screen, restore the fixed size after.
     func windowWillEnterFullScreen(_ note: Notification) {
+        // The window's size is fixed (min = max); full screen sets its own.
+        window?.contentMinSize = NSSize(width: 320, height: 240)
         window?.contentMaxSize = NSSize(width: 100_000, height: 100_000)
+        (window?.contentView as? BryceContainer)?.fillsScreen = true
     }
 
     /// Crisp pixels: nearest-neighbour enlarging for every layer the VM view draws
@@ -659,10 +690,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         walk(root)
     }
 
+    func windowWillExitFullScreen(_ note: Notification) {
+        (window?.contentView as? BryceContainer)?.fillsScreen = false
+    }
+
     func windowDidExitFullScreen(_ note: Notification) {
-        guard let w = window, let v = vmView else { return }
-        w.contentMaxSize = v.frame.size
-        w.setContentSize(v.frame.size)
+        guard let w = window, let c = w.contentView as? BryceContainer else { return }
+        w.contentMinSize = c.windowSize
+        w.contentMaxSize = c.windowSize
+        w.setContentSize(c.windowSize)
     }
 
     // MARK: Stopping
