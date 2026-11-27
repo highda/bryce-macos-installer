@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs as root from bryce-session.service: prepares disks (bryce-firstboot),
-# starts Xorg on the virtio-gpu display, then Openbox + Bryce as user bryce.
+# starts Xorg on the virtio-gpu display (640x480), then Openbox + Bryce as user bryce.
 # When Bryce exits, the VM powers off (and the Mac app closes).
 set -u
 log() { echo "[bryce-session] $*" > /dev/hvc0 2>/dev/null; echo "[bryce-session] $*"; }
@@ -17,8 +17,6 @@ if [ ! -S /tmp/.X11-unix/X0 ]; then
   grep -E '\(EE\)|Fatal' /var/log/bryce-xorg.log 2>/dev/null | head -n 15 | sed 's/^/[xorg] /' > /dev/hvc0
   tail -n 8 /var/log/bryce-xorg.log 2>/dev/null | sed 's/^/[xorg] /' > /dev/hvc0
 fi
-# Crisp scaling (bryce.scale=k) is applied by bryce-launch once the session
-# (Openbox) runs: before that Xorg accepts the transform but doesn't apply it.
 /usr/local/bin/bryce-control >/var/log/bryce-control.log 2>&1 &
 # Clipboard shared with macOS (Spice agent port from the Mac app). -X: our
 # session doesn't go through logind, so don't ask it which session is active.
@@ -30,9 +28,9 @@ spice-vdagentd -X -f -u /run/spice-vdagentd/no-uinput >/var/log/spice-vdagentd.l
 
 su - bryce -c 'export DISPLAY=:0
   xsetroot -solid "#202020"
-  # Clipboard agent first: when it connects it applies the display setup from
-  # the Mac once, which would undo the crisp scaling if that came earlier.
   spice-vdagent -x >/tmp/spice-vdagent.log 2>&1 &
+  # Keeps owned windows (palettes, dialogs) above their owner, as on Windows.
+  /usr/local/bin/bryce-stack >/tmp/bryce-stack.log 2>&1 &
   openbox --config-file /etc/bryce/openbox/rc.xml >/tmp/openbox.log 2>&1 &
   /usr/local/bin/bryce-launch'
 log "Bryce exited, shutting down"

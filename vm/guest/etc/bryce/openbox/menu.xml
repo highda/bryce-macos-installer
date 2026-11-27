@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <openbox_menu xmlns="http://openbox.org/3.4/menu">
-  <menu id="root-menu" label="Bryce 3D">
-    <item label="Launch Bryce 3D">
+  <menu id="root-menu" label="Bryce">
+    <item label="Launch Bryce">
       <action name="Execute">
         <command>/usr/local/bin/bryce-launch</command>
       </action>

@@ -1,23 +1,23 @@
 #!/bin/bash
-# Assembles "Bryce 3D.app" and "Bryce-3D.dmg" from the host source and a built
+# Assembles "Bryce.app" and "Bryce.dmg" from the host source and a built
 # runtime (vm/build-image.sh output: Image + root.img).
 #
 #   vm/build-app.sh RUNTIME_DIR [OUT_DIR] [--sign "Developer ID Application: ..."]
 #
-# Needs Xcode Command Line Tools (swiftc). Contains no part of Bryce 3D.
+# Needs Xcode Command Line Tools (swiftc). Contains no part of Bryce.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RUNTIME="${1:?usage: build-app.sh RUNTIME_DIR [OUT_DIR] [--sign IDENTITY]}"
 OUT="${2:-$HERE/../dist}"
 IDENTITY="-"
 [[ "${3:-}" == "--sign" ]] && IDENTITY="${4:?}"
-VERSION="${BRYCE_VERSION:-2.0.0}"
+VERSION="${BRYCE_VERSION:-2.1.0}"
 
-APP="$OUT/Bryce 3D.app"
+APP="$OUT/Bryce.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/runtime"
 
-swiftc -O -target arm64-apple-macos14 "$HERE"/host/*.swift -o "$APP/Contents/MacOS/Bryce 3D"
+swiftc -O -target arm64-apple-macos14 "$HERE"/host/*.swift -o "$APP/Contents/MacOS/Bryce"
 # APFS clones: no extra disk space for the 2 GB system image.
 cp -c "$RUNTIME/Image" "$RUNTIME/root.img" "$APP/Contents/Resources/runtime/" 2>/dev/null \
   || cp "$RUNTIME/Image" "$RUNTIME/root.img" "$APP/Contents/Resources/runtime/"
@@ -41,10 +41,10 @@ cat > "$APP/Contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Bryce 3D</string>
-  <key>CFBundleDisplayName</key><string>Bryce 3D</string>
+  <key>CFBundleName</key><string>Bryce</string>
+  <key>CFBundleDisplayName</key><string>Bryce</string>
   <key>CFBundleIdentifier</key><string>io.github.highda.bryce3d</string>
-  <key>CFBundleExecutable</key><string>Bryce 3D</string>
+  <key>CFBundleExecutable</key><string>Bryce</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
@@ -52,7 +52,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.graphics-design</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSHumanReadableCopyright</key><string>Runs your own copy of Bryce 3D (1997). Bryce 3D is not included.</string>
+  <key>NSHumanReadableCopyright</key><string>Runs your own copy of Bryce 2, Bryce 3D or Bryce 4 for Windows. Bryce is not included.</string>
 </dict>
 </plist>
 EOF
@@ -69,15 +69,15 @@ codesign --verify "$APP"
 # Disk image: the app plus an Applications link to drag it onto. Built as an
 # empty read-write image of a known size, filled, then compressed (-srcfolder
 # undersizes the volume because root.img is a sparse file).
-DMG="$OUT/Bryce-3D.dmg"
+DMG="$OUT/Bryce.dmg"
 WORKDIR="$(mktemp -d)"
 MNT="$WORKDIR/mnt"
 trap 'hdiutil detach -quiet "$MNT" 2>/dev/null || true; rm -rf "$WORKDIR"' EXIT
 mb=$(( $(du -A -s -k "$APP" | cut -f1) * 11 / 10 / 1024 + 64 ))
-hdiutil create -quiet -size ${mb}m -fs HFS+ -volname "Bryce 3D" -type UDIF -layout NONE "$WORKDIR/rw.dmg"
+hdiutil create -quiet -size ${mb}m -fs HFS+ -volname "Bryce" -type UDIF -layout NONE "$WORKDIR/rw.dmg"
 mkdir -p "$MNT"
 hdiutil attach -quiet -nobrowse -noautoopen -mountpoint "$MNT" "$WORKDIR/rw.dmg"
-ditto "$APP" "$MNT/Bryce 3D.app"
+ditto "$APP" "$MNT/Bryce.app"
 ln -s /Applications "$MNT/Applications"
 hdiutil detach -quiet "$MNT"
 rm -f "$DMG"

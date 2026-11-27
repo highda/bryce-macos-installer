@@ -1,0 +1,86 @@
+#!/usr/bin/python3
+# Keeps the X stacking order of Wine's windows consistent with the Windows
+# rule that an owned window (a palette, a dialog) is always above its owner.
+#
+# Wine runs Bryce's windows unmanaged (Managed=N), so they appear exactly where
+# Bryce puts them, but when Bryce's main window is activated Wine raises it in X
+# without raising the palettes it owns: they vanish behind it. Wine marks owned
+# windows with WM_TRANSIENT_FOR, so whenever an owner ends up above one of its
+# owned windows, this moves the owner back below the lowest of them.
+import sys
+import time
+
+from Xlib import X, display, error
+
+
+def log(*a):
+    print("[bryce-stack]", *a, flush=True)
+
+
+def owner_of(w):
+    try:
+        t = w.get_wm_transient_for()
+        return t.id if t else None
+    except error.XError:
+        return None
+
+
+def fix_once(d, root):
+    """Correct one inverted owner/owned pair. True if something was restacked."""
+    kids = [w for w in root.query_tree().children]
+    viewable = []
+    for w in kids:
+        try:
+            if w.get_attributes().map_state == X.IsViewable:
+                viewable.append(w)
+        except error.XError:
+            pass
+    pos = {w.id: i for i, w in enumerate(viewable)}       # bottom to top
+    owned = {}
+    for w in viewable:
+        o = owner_of(w)
+        if o in pos and o != w.id:
+            owned.setdefault(o, []).append(w)
+    for o, ws in owned.items():
+        lowest = min(ws, key=lambda w: pos[w.id])
+        if pos[o] > pos[lowest.id]:
+            d.create_resource_object("window", o).configure(sibling=lowest.id, stack_mode=X.Below)
+            d.sync()
+            return True
+    return False
+
+
+def fix(d, root):
+    for _ in range(20):
+        try:
+            if not fix_once(d, root):
+                return
+        except error.XError:
+            return
+
+
+def main():
+    for _ in range(100):
+        try:
+            d = display.Display(":0")
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        log("no X display")
+        sys.exit(1)
+    root = d.screen().root
+    root.change_attributes(event_mask=X.SubstructureNotifyMask)
+    log("watching window order")
+    while True:
+        e = d.next_event()
+        if e.type in (X.ConfigureNotify, X.MapNotify, X.CirculateNotify):
+            # Let a burst of restacking settle before checking.
+            time.sleep(0.02)
+            while d.pending_events():
+                d.next_event()
+            fix(d, root)
+
+
+if __name__ == "__main__":
+    main()

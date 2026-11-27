@@ -28,7 +28,7 @@ RUN apt-get update \
       linux-image-virtual \
       systemd systemd-sysv udev dbus kmod e2fsprogs util-linux iproute2 \
       xserver-xorg-core xserver-xorg-input-libinput x11-xserver-utils xinit \
-      openbox spice-vdagent python3 python3-xlib python3-evdev libarchive-tools fonts-dejavu-core \
+      openbox spice-vdagent python3 python3-xlib python3-evdev libarchive-tools unshield fonts-dejavu-core \
       ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 
@@ -63,11 +63,11 @@ RUN usermod -l bryce -d /home/bryce -m ubuntu && groupmod -n bryce ubuntu \
  && : > /etc/machine-id \
  && mkdir -p /.overlay
 
-RUN command -v Xorg xrandr setxkbmap openbox wine python3 spice-vdagent spice-vdagentd >/dev/null
+RUN command -v Xorg xrandr setxkbmap openbox wine python3 spice-vdagent spice-vdagentd unshield unshieldv3 >/dev/null
 
 COPY guest/ /
 RUN chmod 755 /usr/local/bin/bryce-session /usr/local/bin/bryce-firstboot /usr/local/bin/bryce-launch \
-      /usr/local/bin/bryce-input /usr/local/bin/bryce-control /usr/local/sbin/bryce-init \
+      /usr/local/bin/bryce-input /usr/local/bin/bryce-stack /usr/local/bin/bryce-control /usr/local/sbin/bryce-init \
  && systemctl enable bryce-session.service \
  && systemctl mask spice-vdagentd.service spice-vdagentd.socket \
  && systemctl mask getty@tty1.service systemd-networkd-wait-online.service \

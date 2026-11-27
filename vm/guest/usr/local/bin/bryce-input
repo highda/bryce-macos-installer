@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bryce-input: fixes Bryce 3D's 1997 mouse handling in the VM's absolute-pointer
+bryce-input: fixes Bryce's 1990s mouse handling in the VM's absolute-pointer
 display. Runs as root once Xorg is up. It takes exclusive hold (EVIOCGRAB) of
 the VM's pointing device ("Virtual USB Digitizer"), so Xorg no longer reads it,
 and replays the events into X through XTest with two corrections:

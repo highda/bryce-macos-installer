@@ -11,9 +11,9 @@ dpkg-query --admindir="$ROOT/var/lib/dpkg" -W \
 
 {
 cat <<'HEAD'
-# Sources of the Bryce 3D runtime (Linux VM image)
+# Sources of the Bryce runtime (Linux VM image)
 
-Bryce 3D.app contains a small Linux system, built by `vm/build-image.sh` from
+Bryce.app contains a small Linux system, built by `vm/build-image.sh` from
 `vm/rootfs.Dockerfile` in https://github.com/highda/bryce-macos-installer.
 Inside the image, every package keeps its license in `/usr/share/doc/<package>/copyright`.
 
@@ -35,7 +35,7 @@ awk -F'\t' '/^hangover-/ { v = $2; sub(/~.*/, "", v); rel = "https://github.com/
   else                  printf "| %s | %s | %s (Wine: https://gitlab.winehq.org/wine/wine) | LGPL-2.1-or-later |\n", $1, $2, rel }' "$OUT/packages.tsv"
 cat <<'MID'
 | unshieldv3 | 4e5700fb | https://github.com/wfr/unshieldv3/tree/4e5700fb97ba9f0338b49c1031834ce42177f265 | Apache-2.0 |
-| Bryce 3D guest scripts (`bryce-*`) | this release | `vm/guest/` in this repository | MIT |
+| Bryce guest scripts (`bryce-*`) | this release | `vm/guest/` in this repository | MIT |
 
 ## Ubuntu 24.04 packages
 

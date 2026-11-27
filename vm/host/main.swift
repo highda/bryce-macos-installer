@@ -1,11 +1,12 @@
-// Bryce 3D host: runs the Linux runtime VM (Hangover Wine + FEX + Bryce)
+// Bryce host: runs the Linux runtime VM (Hangover Wine + FEX + Bryce 2, 3D or 4)
 // with Apple's Virtualization.framework and shows its display in a window.
 //
 // In the app bundle the runtime (Image = kernel, root.img = read-only system)
 // is in Contents/Resources/runtime. Bryce itself is never included: on the
 // first start the app asks for the user's CD image and the VM unpacks it onto
-// the data disk (~/Library/Application Support/Bryce 3D/data.img).
-// Scenes and renders: ~/Documents/Bryce 3D (E:\ inside Bryce).
+// the data disk (~/Library/Application Support/Bryce/data.img).
+// Scenes and renders: ~/Documents/Bryce (E:\ inside Bryce). Installs made
+// before Bryce 2 and 4 were supported keep their "Bryce 3D" folders.
 //
 // Development: BryceVM [--runtime DIR] [--data FILE] [--iso FILE] [--projects DIR]
 // BRYCE_DEBUG=1 shows kernel messages in vm-console.log and enables the
@@ -27,17 +28,39 @@ struct Options {
     /// Open Settings instead of starting Bryce (like holding ⌥ at launch).
     var settingsOnly = false
 
-    /// Written when the VM reports that Bryce is on the data disk (kept next to it).
+    /// Written when the VM reports that Bryce is on the data disk (kept next to it);
+    /// holds the installed version's name ("Bryce 4"). Empty: Bryce 3D (older app versions).
     var installedMarker: URL { data.deletingLastPathComponent().appendingPathComponent("installed") }
+
+    /// Content CDs copied onto the data disk (their names, as the VM reports them).
+    var contentList: URL { data.deletingLastPathComponent().appendingPathComponent("content") }
+    var contentCDs: [String] {
+        guard let d = FileManager.default.contents(atPath: contentList.path) else { return [] }
+        return String(decoding: d, as: UTF8.self).split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+    /// Where a content CD image chosen in Settings is converted, if it needs to be.
+    var contentCache: URL { support.appendingPathComponent("content-cache", isDirectory: true) }
+
+    /// "Bryce 2", "Bryce 3D", "Bryce 4", or "Bryce" before anything is installed.
+    var edition: String {
+        guard let d = FileManager.default.contents(atPath: installedMarker.path) else { return "Bryce" }
+        let s = String(decoding: d, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.isEmpty ? "Bryce 3D" : s
+    }
 
     init() {
         let fm = FileManager.default
-        support = fm.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Bryce 3D", isDirectory: true)
+        let home = fm.homeDirectoryForCurrentUser
+        // Folders of an existing Bryce 3D install (app versions up to 2.0.3) stay in use.
+        func folder(_ parent: String, _ old: String, _ new: String) -> URL {
+            let o = home.appendingPathComponent("\(parent)/\(old)", isDirectory: true)
+            return fm.fileExists(atPath: o.path) ? o : home.appendingPathComponent("\(parent)/\(new)", isDirectory: true)
+        }
+        support = folder("Library/Application Support", "Bryce 3D", "Bryce")
         runtime = Bundle.main.resourceURL!.appendingPathComponent("runtime", isDirectory: true)
         data = support.appendingPathComponent("data.img")
         console = support.appendingPathComponent("vm-console.log")
-        projects = fm.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Bryce 3D", isDirectory: true)
+        projects = folder("Documents", "Bryce 3D", "Bryce")
         var it = CommandLine.arguments.dropFirst().makeIterator()
         while let a = it.next() {
             if a == "--settings" { settingsOnly = true; continue }
@@ -53,14 +76,13 @@ struct Options {
     }
 }
 
-/// Crisp scaling. Bryce draws 640x480; the VM's display is `pixelScale` times
-/// that in physical pixels, enlarged inside the VM with nearest-neighbour, and
-/// the window shows those pixels 1:1. On Retina, 1.5x in points is 3x in pixels,
-/// so every 0.5 step is a whole number of pixels.
+/// Window size. The VM's display is always 640x480 (what Bryce expects, and what
+/// Wine reports to it); the window enlarges it by `pointScale`, with
+/// nearest-neighbour filtering when crisp pixels are on. On Retina, 1.5x in
+/// points is 3x in pixels, so every 0.5 step is a whole number of pixels.
 struct Display {
-    static let base = (w: 640, h: 480)        // Bryce 3D's native layout
+    static let base = (w: 640, h: 480)        // Bryce's fixed layout (2, 3D and 4)
     let pointScale: CGFloat                   // window size / 640x480, in points
-    let pixelScale: Int                       // VM display / 640x480, in pixels
 
     /// Largest whole-pixel scale that fits the screen (title bar included).
     static func automaticScale(screen: NSScreen?) -> CGFloat {
@@ -93,11 +115,9 @@ struct Display {
         } else {
             pointScale = Display.automaticScale(screen: screen)
         }
-        // Crisp (nearest-neighbour) scaling inside the VM unless turned off in Settings.
-        pixelScale = Prefs.crisp ? max(1, Int((pointScale * backing).rounded())) : 1
     }
 
-    var pixels: (w: Int, h: Int) { (Display.base.w * pixelScale, Display.base.h * pixelScale) }
+    var pixels: (w: Int, h: Int) { Display.base }
     var points: NSSize { NSSize(width: CGFloat(Display.base.w) * pointScale, height: CGFloat(Display.base.h) * pointScale) }
 }
 
@@ -147,7 +167,7 @@ enum Keyboard {
 
 func fail(_ msg: String) -> Never {
     let alert = NSAlert()
-    alert.messageText = "Bryce 3D can't start"
+    alert.messageText = "Bryce can't start"
     alert.informativeText = msg
     alert.alertStyle = .critical
     alert.runModal()
@@ -165,14 +185,14 @@ func ensureSparseDisk(_ url: URL, gigabytes: UInt64) throws {
     try h.close()
 }
 
-/// First start: explain, let the user pick their Bryce 3D CD, and turn it into
+/// First start: explain, let the user pick their Bryce CD, and turn it into
 /// something the VM can read as an ISO9660 disk. Returns nil if they cancel.
 func chooseCDImage(cache: URL) -> URL? {
     NSApp.activate(ignoringOtherApps: true)
     let a = NSAlert()
-    a.messageText = "Install Bryce 3D"
+    a.messageText = "Install Bryce"
     a.informativeText = """
-        Bryce 3D is set up once from your own Bryce 3D CD (Windows edition, 1997). \
+        Bryce is set up once from your own Bryce CD for Windows: Bryce 2, Bryce 3D or Bryce 4. \
         Choose a disc image of it (.iso, .cdr, .toast or .dmg), the inserted CD, or a folder with a copy of it.
 
         Afterwards Bryce asks for your name and serial number once.
@@ -180,15 +200,28 @@ func chooseCDImage(cache: URL) -> URL? {
     a.addButton(withTitle: "Choose CD…")
     a.addButton(withTitle: "Quit")
     guard a.runModal() == .alertFirstButtonReturn else { return nil }
+    guard let src = pickCD("Choose your Bryce CD image, the CD itself, or a folder with a copy of it") else { return nil }
+    guard let iso = cdImage(from: src, cache: cache) else {
+        fail("macOS can't read “\(src.lastPathComponent)” as a CD image.")
+    }
+    return iso
+}
 
+/// Open panel for a CD image, a mounted CD or a folder.
+func pickCD(_ message: String) -> URL? {
+    NSApp.activate(ignoringOtherApps: true)
     let panel = NSOpenPanel()
-    panel.message = "Choose your Bryce 3D CD image, the CD itself, or a folder with a copy of it"
+    panel.message = message
     panel.canChooseFiles = true
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
     panel.treatsFilePackagesAsDirectories = false
-    guard panel.runModal() == .OK, let src = panel.url else { return nil }
+    return panel.runModal() == .OK ? panel.url : nil
+}
 
+/// A disk image the VM can attach: .iso/.cdr/.toast as they are, other images
+/// converted and folders (or a mounted CD) turned into an ISO, in `cache`.
+func cdImage(from src: URL, cache: URL) -> URL? {
     let fm = FileManager.default
     try? fm.removeItem(at: cache)
     try? fm.createDirectory(at: cache, withIntermediateDirectories: true)
@@ -207,15 +240,21 @@ func chooseCDImage(cache: URL) -> URL? {
     if isDir.boolValue {
         // A folder or the mounted CD: build an ISO of it.
         let out = cache.appendingPathComponent("cd.iso")
-        if hdiutil(["makehybrid", "-iso", "-joliet", "-o", out.path, src.path]) { return out }
+        return hdiutil(["makehybrid", "-iso", "-joliet", "-o", out.path, src.path]) ? out : nil
     } else if ["iso", "cdr", "toast"].contains(src.pathExtension.lowercased()) {
         return src
     } else {
         // Other disk images (e.g. compressed .dmg): convert to a raw CD image.
         let out = cache.appendingPathComponent("cd.cdr")
-        if hdiutil(["convert", src.path, "-format", "UDTO", "-o", out.path]) { return out }
+        return hdiutil(["convert", src.path, "-format", "UDTO", "-o", out.path]) ? out : nil
     }
-    fail("macOS can't read “\(src.lastPathComponent)” as a CD image.")
+}
+
+/// A content CD chosen in Settings, copied by the VM on this boot (only when
+/// Bryce is already installed, so it can't be mistaken for the install CD).
+func contentCD(_ o: Options) -> URL? {
+    guard o.iso == nil, let p = Prefs.pendingContentCD, FileManager.default.fileExists(atPath: p) else { return nil }
+    return URL(fileURLWithPath: p)
 }
 
 func makeConfiguration(_ o: Options, display: Display, control: Pipe, fromGuest: Pipe) throws -> VZVirtualMachineConfiguration {
@@ -225,10 +264,11 @@ func makeConfiguration(_ o: Options, display: Display, control: Pipe, fromGuest:
 
     let boot = VZLinuxBootLoader(kernelURL: o.runtime.appendingPathComponent("Image"))
     boot.commandLine = "console=hvc0 root=/dev/vda ro rootwait init=/usr/local/sbin/bryce-init panic=10 bryce.uid=\(getuid())"
-        + " bryce.scale=\(display.pixelScale) bryce.kbd=\(Keyboard.effective())"
+        + " bryce.kbd=\(Keyboard.effective())"
         + " bryce.time=\(Int(Date().timeIntervalSince1970))"        // the VM has no clock of its own
         + (Prefs.commandAsControl ? " bryce.cmdctrl=1" : "")
         + (Prefs.pendingResets.isEmpty ? "" : " bryce.reset=" + Prefs.pendingResets.joined(separator: ","))
+        + (contentCD(o) != nil ? " bryce.addcd=1" : "")
         + (o.debug ? " bryce.debug=1" : " quiet")
 
     let cfg = VZVirtualMachineConfiguration()
@@ -244,7 +284,7 @@ func makeConfiguration(_ o: Options, display: Display, control: Pipe, fromGuest:
         VZVirtioBlockDeviceConfiguration(attachment: try VZDiskImageStorageDeviceAttachment(
             url: o.data, readOnly: false)),
     ]
-    if let iso = o.iso {
+    if let iso = o.iso ?? contentCD(o) {
         disks.append(VZVirtioBlockDeviceConfiguration(attachment: try VZDiskImageStorageDeviceAttachment(
             url: iso, readOnly: true)))
     }
@@ -315,7 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
                 other.activate()
                 exit(0)
             }
-            fail("Bryce 3D is already running.")
+            fail("Bryce is already running.")
         }
 
         // Hold ⌥ while starting: settings and maintenance before Bryce starts.
@@ -333,13 +373,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         let appItem = NSMenuItem()
         main.addItem(appItem)
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About Bryce 3D", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "About Bryce", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide Bryce 3D", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Hide Bryce", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit Bryce 3D", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit Bryce", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         let viewItem = NSMenuItem()
         main.addItem(viewItem)
@@ -364,10 +404,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
             start: { [weak self] in self?.settingsWindow?.close(); self?.startBryce() },
             restart: { [weak self] in self?.restart() },
             reinstall: { [weak self] in self?.reinstall() },
-            removeAll: { [weak self] in self?.removeAll() })
-        let view = SettingsView(running: vm != nil, actions: actions, projects: options.projects)
+            removeAll: { [weak self] in self?.removeAll() },
+            addContentCD: { [weak self] in self?.addContentCD() })
+        let view = SettingsView(running: vm != nil, actions: actions, projects: options.projects,
+                                edition: options.edition, contentCDs: options.contentCDs)
         let w = NSWindow(contentViewController: NSHostingController(rootView: view))
-        w.title = "Bryce 3D Settings"
+        w.title = "\(options.edition) Settings"
         w.styleMask = [.titled, .closable]
         w.isReleasedWhenClosed = false
         w.delegate = self
@@ -452,11 +494,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         view.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin, .maxYMargin]
         container.addSubview(view)
         vmView = view
+        // The view creates its drawing layers once the guest display is up (and may
+        // replace them), so the filter is checked again every second.
+        applyScalingFilter()
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.applyScalingFilter() }
 
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: size),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable],
                          backing: .buffered, defer: false)
-        w.title = "Bryce 3D"
+        w.title = o.edition
         w.contentView = container
         w.contentMinSize = size
         w.contentMaxSize = size
@@ -499,9 +545,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
             setRelativeDrag(line == "rel 1")
             return
         }
-        if line == "installed" {
-            FileManager.default.createFile(atPath: options.installedMarker.path, contents: nil)
+        if line == "installed" || line.hasPrefix("installed ") {
+            // "installed Bryce 4"; a bare "installed" comes from older runtimes (Bryce 3D).
+            let name = line == "installed" ? "Bryce 3D" : String(line.dropFirst(10))
+            FileManager.default.createFile(atPath: options.installedMarker.path, contents: Data(name.utf8))
+            window?.title = name
             try? FileManager.default.removeItem(at: options.support.appendingPathComponent("cd-cache"))
+        } else if line.hasPrefix("content") {
+            // "content BRYCE2_ACC BRYCE4_CONTENT": the content CDs on the data disk.
+            let names = line.dropFirst(7).split(whereSeparator: \.isWhitespace).joined(separator: "\n")
+            try? Data(names.utf8).write(to: options.contentList)
+        } else if line.hasPrefix("cdadded ") || line.hasPrefix("cderror ") {
+            Prefs.pendingContentCD = nil
+            try? FileManager.default.removeItem(at: options.contentCache)
+            if line.hasPrefix("cderror ") {
+                let a = NSAlert()
+                a.messageText = "The content CD was not added"
+                a.informativeText = String(line.dropFirst(8))
+                a.alertStyle = .warning
+                a.beginSheetModal(for: window ?? NSWindow()) { _ in }
+            }
         } else if line.hasPrefix("error ") {
             guestError = String(line.dropFirst(6))
         } else if line == "exit" {
@@ -555,6 +618,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
         window?.contentMaxSize = NSSize(width: 100_000, height: 100_000)
     }
 
+    /// Crisp pixels: nearest-neighbour enlarging for every layer the VM view draws
+    /// with (Settings can turn it off for smooth enlarging).
+    func applyScalingFilter() {
+        guard let root = vmView?.layer else { return }
+        let f: CALayerContentsFilter = Prefs.crisp ? .nearest : .linear
+        func walk(_ l: CALayer) {
+            if l.magnificationFilter != f { l.magnificationFilter = f; l.minificationFilter = f }
+            l.sublayers?.forEach(walk)
+        }
+        walk(root)
+    }
+
     func windowDidExitFullScreen(_ note: Notification) {
         guard let w = window, let v = vmView else { return }
         w.contentMaxSize = v.frame.size
@@ -576,8 +651,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
             guestError = nil
             window?.orderOut(nil)
             let a = NSAlert()
-            a.messageText = "Bryce 3D could not be set up"
-            a.informativeText = msg + "\n\nStart Bryce 3D again to choose the CD image again."
+            a.messageText = "Bryce could not be set up"
+            a.informativeText = msg + "\n\nStart Bryce again to choose the CD image again."
             a.alertStyle = .warning
             a.runModal()
         }
@@ -595,15 +670,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
 
     func restart() {
         guard vm != nil else { settingsWindow?.close(); startBryce(); return }
-        guard confirm("Restart Bryce 3D?",
+        guard confirm("Restart \(options.edition)?",
                       "Bryce will be closed and started again with the new settings. Save your scene in Bryce first: unsaved changes are lost.",
                       button: "Restart", destructive: false) else { return }
         stopVM { self.relaunch() }
     }
 
+    /// Settings › Content CDs › Add CD…: the VM copies it on the next start.
+    func addContentCD() -> String? {
+        guard let src = pickCD("Choose a Bryce content CD image (or the CD, or a folder with a copy of it)") else { return nil }
+        guard let iso = cdImage(from: src, cache: options.contentCache) else {
+            let a = NSAlert()
+            a.messageText = "macOS can't read “\(src.lastPathComponent)” as a CD image."
+            a.runModal()
+            return nil
+        }
+        Prefs.pendingContentCD = iso.path
+        return src.lastPathComponent
+    }
+
     func reinstall() {
-        guard confirm("Reinstall Bryce 3D from the CD?",
-                      "This removes the installed Bryce 3D, its settings and your registration. Next, you choose the CD again and enter your serial number. Your scenes in Documents › Bryce 3D are kept.",
+        guard confirm("Reinstall Bryce from a CD?",
+                      "This removes the installed \(options.edition), its settings and your registration. Next, you choose a Bryce CD (the same or another version) and enter its serial number. Your scenes in Documents › \(options.projects.lastPathComponent) are kept.",
                       button: "Reinstall") else { return }
         stopVM {
             self.deleteData(keepingSettings: true)
@@ -612,14 +700,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
     }
 
     func removeAll() {
-        guard confirm("Remove all Bryce 3D data?",
-                      "This removes the installed Bryce 3D, its settings, your registration and this app's preferences. Your scenes in Documents › Bryce 3D are kept. Afterwards you can delete the app itself.",
+        guard confirm("Remove all Bryce data?",
+                      "This removes the installed \(options.edition), its settings, your registration and this app's preferences. Your scenes in Documents › \(options.projects.lastPathComponent) are kept. Afterwards you can delete the app itself.",
                       button: "Remove") else { return }
         stopVM {
             self.deleteData(keepingSettings: false)
             let a = NSAlert()
-            a.messageText = "Bryce 3D data removed"
-            a.informativeText = "You can now move Bryce 3D to the Trash."
+            a.messageText = "Bryce data removed"
+            a.informativeText = "You can now move the Bryce app to the Trash."
             a.runModal()
             exit(0)
         }
@@ -628,7 +716,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
     /// Deletes this app's files in Application Support (not other files there).
     func deleteData(keepingSettings: Bool) {
         let fm = FileManager.default
-        for name in ["data.img", "installed", "cd-cache", "vm-console.log", "vm-host.log", "vm-control.fifo"] {
+        for name in ["data.img", "installed", "content", "cd-cache", "content-cache", "vm-console.log", "vm-host.log", "vm-control.fifo"] {
             try? fm.removeItem(at: options.support.appendingPathComponent(name))
         }
         if !keepingSettings {
@@ -644,7 +732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard sender == window, !quitting else { return true }
-        return confirm("Quit Bryce 3D?", "Unsaved changes in Bryce are lost. To keep them, save your scene in Bryce first.",
+        return confirm("Quit \(options.edition)?", "Unsaved changes in Bryce are lost. To keep them, save your scene in Bryce first.",
                        button: "Quit", destructive: true)
     }
 
@@ -660,7 +748,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, VZVi
 
     func applicationShouldTerminate(_ app: NSApplication) -> NSApplication.TerminateReply {
         guard vm != nil, !quitting else { return .terminateNow }
-        guard confirm("Quit Bryce 3D?", "Unsaved changes in Bryce are lost. To keep them, save your scene in Bryce first.",
+        guard confirm("Quit \(options.edition)?", "Unsaved changes in Bryce are lost. To keep them, save your scene in Bryce first.",
                       button: "Quit", destructive: true) else { return .terminateCancel }
         stopVM { exit(0) }
         return .terminateLater

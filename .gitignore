@@ -20,3 +20,6 @@ dist/
 # Runtime image build output and VM disks
 vm/out/
 *.img
+
+# Python bytecode
+__pycache__/

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds the Bryce 3D runtime VM: out/Image (kernel), out/initrd, out/root.img (ext4).
+# Builds the Bryce runtime VM: out/Image (kernel), out/root.img (ext4).
 # Needs Docker (development machine or CI); end users never need Docker.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"

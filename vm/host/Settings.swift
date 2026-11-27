@@ -1,4 +1,4 @@
-// Settings and maintenance window (Bryce 3D › Settings…, or hold ⌥ while
+// Settings and maintenance window (Bryce › Settings…, or hold ⌥ while
 // starting the app to open it before Bryce starts).
 import AppKit
 import SwiftUI
@@ -27,7 +27,13 @@ enum Prefs {
         get { d.bool(forKey: "CommandAsControl") }
         set { d.set(newValue, forKey: "CommandAsControl") }
     }
-    /// Maintenance the VM does on its next boot ("registration", "prefs").
+    /// A content CD image to copy onto the data disk on the next start.
+    static var pendingContentCD: String? {
+        get { d.string(forKey: "PendingContentCD") }
+        set { if let v = newValue { d.set(v, forKey: "PendingContentCD") } else { d.removeObject(forKey: "PendingContentCD") } }
+    }
+    /// Maintenance the VM does on its next boot ("registration", "prefs",
+    /// "content:LABEL" to remove a content CD).
     static var pendingResets: [String] {
         get { d.stringArray(forKey: "PendingResets") ?? [] }
         set { d.set(Array(Set(newValue)).sorted(), forKey: "PendingResets") }
@@ -39,19 +45,23 @@ struct SettingsActions {
     var start: () -> Void           // start Bryce (window opened before start)
     var restart: () -> Void         // restart Bryce so changes take effect
     var reinstall: () -> Void       // delete the data disk, ask for the CD next time
-    var removeAll: () -> Void       // delete all Bryce 3D app data, then quit
+    var removeAll: () -> Void       // delete all of this app's Bryce data, then quit
+    var addContentCD: () -> String? // choose a content CD image; its file name, nil if cancelled
 }
 
 struct SettingsView: View {
     let running: Bool
     let actions: SettingsActions
     let projects: URL
+    let edition: String             // "Bryce 4", or "Bryce" before installing
+    let contentCDs: [String]        // content CDs on the data disk
 
     @State private var scale = Prefs.scale ?? 0
     @State private var crisp = Prefs.crisp
     @State private var keyboard = Prefs.keyboard ?? ""
     @State private var cmdCtrl = Prefs.commandAsControl
     @State private var pending = Prefs.pendingResets
+    @State private var pendingCD = Prefs.pendingContentCD.map { URL(fileURLWithPath: $0).lastPathComponent }
 
     private var autoScale: CGFloat { Display.automaticScale(screen: NSScreen.main) }
     private var choices: [CGFloat] { Display.scaleChoices(screen: NSScreen.main) }
@@ -88,9 +98,26 @@ struct SettingsView: View {
             }
             Section("Scenes and renders") {
                 LabeledContent("Folder") {
-                    Text("Documents › Bryce 3D  (E:\\ in Bryce)")
+                    Text("Documents › \(projects.lastPathComponent)  (E:\\ in Bryce)")
                 }
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([projects]) }
+            }
+            Section("Content CDs") {
+                Text("Extra Bryce discs (libraries, textures, sample scenes) are copied onto Bryce's disk and appear in Bryce as drives F:, G:, … named after the disc.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(contentCDs, id: \.self) { cd in
+                    maintenance(cd, "Remove this disc's copy.", reset: "content:\(cd)", button: "Remove")
+                }
+                HStack {
+                    if let p = pendingCD {
+                        Text("\(p) is added the next time Bryce starts.").font(.caption)
+                        Spacer()
+                        Button("Cancel") { Prefs.pendingContentCD = nil; pendingCD = nil }
+                    } else {
+                        Spacer()
+                        Button("Add CD…") { pendingCD = actions.addContentCD() }
+                    }
+                }
             }
             Section("Maintenance") {
                 maintenance("Reset registration",
@@ -102,7 +129,7 @@ struct SettingsView: View {
                 HStack {
                     VStack(alignment: .leading) {
                         Text("Reinstall from CD")
-                        Text("Removes the installed Bryce, its settings and registration. You choose the CD again. Your scenes stay.")
+                        Text("Removes the installed Bryce, its settings and registration. You choose a CD again: the same one or another Bryce version. Your scenes stay.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -110,8 +137,8 @@ struct SettingsView: View {
                 }
                 HStack {
                     VStack(alignment: .leading) {
-                        Text("Remove all Bryce 3D data")
-                        Text("Before deleting the app. Your scenes in Documents › Bryce 3D stay.")
+                        Text("Remove all Bryce data")
+                        Text("Before deleting the app. Your scenes in Documents › \(projects.lastPathComponent) stay.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -127,9 +154,9 @@ struct SettingsView: View {
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()
             if running {
-                Button("Restart Bryce 3D") { actions.restart() }
+                Button("Restart \(edition)") { actions.restart() }
             } else {
-                Button("Start Bryce 3D") { actions.start() }.keyboardShortcut(.defaultAction)
+                Button("Start \(edition)") { actions.start() }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
@@ -139,7 +166,7 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func maintenance(_ title: String, _ detail: String, reset: String) -> some View {
+    private func maintenance(_ title: String, _ detail: String, reset: String, button: String = "On next start") -> some View {
         HStack {
             VStack(alignment: .leading) {
                 Text(title)
@@ -149,7 +176,7 @@ struct SettingsView: View {
             if pending.contains(reset) {
                 Button("Cancel") { pending.removeAll { $0 == reset }; Prefs.pendingResets = pending }
             } else {
-                Button("On next start") { pending.append(reset); Prefs.pendingResets = pending }
+                Button(button) { pending.append(reset); Prefs.pendingResets = pending }
             }
         }
     }

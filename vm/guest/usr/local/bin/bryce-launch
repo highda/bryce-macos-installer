@@ -1,10 +1,12 @@
 #!/bin/bash
 # Runs as user bryce inside the X session: Wine prefix on first start, then
-# Bryce 3D under Hangover Wine with FEX translating its x86 code.
+# Bryce (2, 3D or 4, see /data/bryce.conf) under Hangover Wine with FEX
+# translating its x86 code.
 export WINEPREFIX=/data/wine WINEDEBUG=-all \
        WINEDLLOVERRIDES="mscoree=;mshtml=;winemenubuilder.exe=d" \
        HODLL=libwow64fex.dll FEX_X87REDUCEDPRECISION=1
 log() { echo "[bryce-launch] $*"; }
+. /data/bryce.conf || { log "no Bryce installed"; exit 1; }
 
 if [ ! -f "$WINEPREFIX/.ready" ]; then
   log "creating the Wine prefix"
@@ -14,41 +16,49 @@ if [ ! -f "$WINEPREFIX/.ready" ]; then
   wineserver -w
   touch "$WINEPREFIX/.ready"
 fi
-# Settings added after a prefix was created (applied once per setting version).
-if [ "$(cat "$WINEPREFIX/.settings" 2>/dev/null)" != 2 ]; then
+# Settings added after a prefix was created (applied once per settings version).
+if [ "$(cat "$WINEPREFIX/.settings" 2>/dev/null)" != 3 ]; then
+  x11='HKCU\Software\Wine\X11 Driver'
   # Don't enforce ClipCursor through X: Wine's full-screen clip window can
   # outlive a menu and swallow every click. Bryce's drags are handled by bryce-input.
-  wine reg add 'HKCU\Software\Wine\X11 Driver' /v GrabPointer /d N /f >/dev/null 2>&1
+  wine reg add "$x11" /v GrabPointer /d N /f >/dev/null 2>&1
+  # Wine places Bryce's windows itself, exactly where Bryce asks (as on
+  # Windows), instead of the window manager moving and resizing them.
+  # bryce-stack keeps palettes above the main window.
+  wine reg add "$x11" /v Managed /d N /f >/dev/null 2>&1
+  # The display is fixed at 640x480 (enlarged by the Mac app): no mode changes.
+  wine reg add "$x11" /v UseXRandR /d N /f >/dev/null 2>&1
   wineserver -w
-  echo 2 > "$WINEPREFIX/.settings"
+  echo 3 > "$WINEPREFIX/.settings"
 fi
-ln -sfn /data/bryce3d "$WINEPREFIX/drive_c/Bryce3D"
+win=$(basename "$DIR" | sed 's/^bryce/Bryce/; s/3d$/3D/')      # bryce3d -> Bryce3D
+ln -sfn "$DIR" "$WINEPREFIX/drive_c/$win"
 ln -sfn /data/cd "$WINEPREFIX/dosdevices/d:"
 ln -sfn "$HOME/projects" "$WINEPREFIX/dosdevices/e:"
-ln -sfn "$HOME/projects" /data/bryce3d/Projects
-
-# Crisp scaling: the VM display is k times Bryce's 640x480 in physical pixels;
-# X draws a 640x480 desktop and enlarges it k times with nearest-neighbour.
-# Done here, after Openbox started: earlier, Xorg ignores the transform.
-k=$(sed -n 's/.*bryce\.scale=\([0-9]*\).*/\1/p' /proc/cmdline)
-if [ -n "$k" ] && [ "$k" -gt 1 ]; then
-  size() { xrandr 2>/dev/null | sed -n 's/.*current \([0-9]*\) x \([0-9]*\).*/\1x\2/p'; }
-  out=$(xrandr | awk '/ connected/ {print $1; exit}')
-  f=$(awk "BEGIN {printf \"%.10f\", 1/$k}")
-  # Done once 640x480 has held for a second (the clipboard agent may reset
-  # the display once while it connects).
-  ok=0
-  for i in $(seq 40); do
-    [ "$(size)" = 640x480 ] || xrandr --output "$out" --transform "$f,0,0,0,$f,0,0,0,1" --filter nearest 2>/dev/null
-    if [ "$(size)" = 640x480 ]; then ok=$((ok + 1)); [ $ok -ge 3 ] && break; else ok=0; fi
-    sleep 0.5
-  done
-  log "display ${k}x nearest: screen $(size) (attempt $i)"
+ln -sfn "$HOME/projects" "$DIR/Projects"
+# Content CDs: F:, G:, ... in alphabetical order, as CD-ROM drives so Bryce
+# sees each disc's name. Wine's drive list is only rewritten when they change.
+letters=(f g h i j k l m n o p q r s t u v w x y)
+mapfile -t cds < <(ls /data/extra 2>/dev/null | head -n ${#letters[@]})
+for x in "${letters[@]}"; do rm -f "$WINEPREFIX/dosdevices/$x:"; done
+reg=$'REGEDIT4\n\n[HKEY_LOCAL_MACHINE\\Software\\Wine\\Drives]\n'
+for i in "${!letters[@]}"; do
+  if [ -n "${cds[$i]:-}" ]; then
+    ln -sfn "/data/extra/${cds[$i]}" "$WINEPREFIX/dosdevices/${letters[$i]}:"
+    reg+="\"${letters[$i]}:\"=\"cdrom\""$'\n'
+  else
+    reg+="\"${letters[$i]}:\"=-"$'\n'
+  fi
+done
+if ! printf '%s' "$reg" | cmp -s - "$WINEPREFIX/.drives.reg"; then
+  printf '%s' "$reg" > "$WINEPREFIX/.drives.reg"
+  wine regedit "$WINEPREFIX/.drives.reg" >/dev/null 2>&1
+  wineserver -w
 fi
 
-cd /data/bryce3d
-log "starting Bryce 3D (FEX)"
-wine 'C:\Bryce3D\Bryce 3D.exe' "$@" >/tmp/bryce.log 2>&1
+cd "$DIR"
+log "starting $NAME (FEX)"
+wine "C:\\$win\\$EXE" "$@" >/tmp/bryce.log 2>&1
 # Bryce has quit: end Wine's helper processes too (they never exit by
 # themselves), so the session ends and the VM powers off.
 wineserver -k

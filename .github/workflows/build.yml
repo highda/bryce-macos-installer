@@ -28,7 +28,7 @@ jobs:
           for f in vm/*.sh vm/guest/usr/local/bin/bryce-* vm/guest/usr/local/sbin/bryce-init; do
             head -1 "$f" | grep -q python || bash -n "$f"
           done
-          python3 -m py_compile vm/guest/usr/local/bin/bryce-input
+          python3 -m py_compile vm/guest/usr/local/bin/bryce-input vm/guest/usr/local/bin/bryce-stack
 
       - name: Build the runtime image
         run: vm/build-image.sh "$RUNNER_TEMP/runtime"
@@ -44,7 +44,7 @@ jobs:
           retention-days: 7
 
   app:
-    name: Bryce 3D.app and disk image
+    name: Bryce.app and disk image
     needs: runtime
     runs-on: macos-15
     permissions:
@@ -66,14 +66,14 @@ jobs:
           fi
           vm/build-app.sh runtime dist
           cp runtime/SOURCES.md runtime/packages.tsv dist/
-          shasum -a 256 dist/Bryce-3D.dmg | sed 's| dist/| |' | tee dist/Bryce-3D.dmg.sha256
+          shasum -a 256 dist/Bryce.dmg | sed 's| dist/| |' | tee dist/Bryce.dmg.sha256
 
       - uses: actions/upload-artifact@v7
         with:
-          name: Bryce-3D
+          name: Bryce
           path: |
-            dist/Bryce-3D.dmg
-            dist/Bryce-3D.dmg.sha256
+            dist/Bryce.dmg
+            dist/Bryce.dmg.sha256
             dist/SOURCES.md
             dist/packages.tsv
           compression-level: 0
@@ -84,6 +84,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            dist/Bryce-3D.dmg dist/Bryce-3D.dmg.sha256 dist/SOURCES.md dist/packages.tsv \
-            --title "Bryce 3D $GITHUB_REF_NAME" \
+            dist/Bryce.dmg dist/Bryce.dmg.sha256 dist/SOURCES.md dist/packages.tsv \
+            --title "Bryce $GITHUB_REF_NAME" \
             --notes-file .github/release-notes.md

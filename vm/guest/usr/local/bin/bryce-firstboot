@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs as root before the display starts. Every boot: match the Mac user's
 # UID, mount the data disk and the shared Projects folder. First boot only:
-# format the data disk and unpack Bryce from the CD image.
+# format the data disk and unpack Bryce (2, 3D or 4) from the CD image.
 set -u
 log() { echo "[bryce-firstboot] $*" > /dev/hvc0 2>/dev/null; echo "[bryce-firstboot] $*"; }
 tell() { echo "$*" > /dev/hvc1 2>/dev/null; }      # message to the Mac app
@@ -38,9 +38,23 @@ modprobe virtiofs 2>/dev/null
 mkdir -p /home/bryce/projects
 mount -t virtiofs projects /home/bryce/projects 2>/dev/null && log "projects folder shared" || log "no projects share"
 
+# Which Bryce is installed: /data/bryce.conf (shell variables, written below).
+#   EDITION  bryce2 | bryce3d | bryce4      NAME  "Bryce 4"
+#   DIR      program folder (C:\Bryce2, C:\Bryce3D or C:\Bryce4 in Wine)
+#   EXE      program file    PREFS  settings file
+#   REGFILE  file(s) Bryce writes when registered, separated by ":"
+conf=/data/bryce.conf
+write_conf() {   # EDITION NAME EXE REGFILE PREFS
+  printf 'EDITION=%q\nNAME=%q\nDIR=%q\nEXE=%q\nREGFILE=%q\nPREFS=%q\n' \
+    "$1" "$2" "/data/$1" "$3" "$4" "$5" > "$conf"
+}
+# Installs from before Bryce 2 and 4 were supported: Bryce 3D without a conf file.
+[ ! -f "$conf" ] && [ -f "/data/bryce3d/Bryce 3D.exe" ] \
+  && write_conf bryce3d "Bryce 3D" "Bryce 3D.exe" MetaImage.dll "Bryce 3D Prefs"
+
 # Unpack Bryce from the CD image (attached read-only as an iso9660 disk).
-if [ ! -f "/data/bryce3d/Bryce 3D.exe" ]; then
-  # The Bryce CD is a Mac/Windows hybrid, so blkid may report its HFS side:
+if [ ! -f "$conf" ]; then
+  # Bryce CDs are Mac/Windows hybrids, so blkid may report the HFS side:
   # try every other disk as ISO9660 instead of trusting the detected type.
   modprobe isofs 2>/dev/null
   mkdir -p /mnt/cd
@@ -49,37 +63,121 @@ if [ ! -f "/data/bryce3d/Bryce 3D.exe" ]; then
     [ -b "$d" ] && [ "$d" != "$data" ] || continue
     if mount -o ro -t iso9660 "$d" /mnt/cd 2>/dev/null; then iso=$d; break; fi
   done
-  [ -n "$iso" ] || fail "Bryce 3D is not installed yet and no CD image was given."
-  log "unpacking Bryce 3D from $iso"
-  data1=$(find /mnt/cd -maxdepth 2 -iname data.1 -type f | head -n1)
-  [ -n "$data1" ] || { umount /mnt/cd; fail "This is not the Bryce 3D Windows CD (no data.1 on it)."; }
-  tmp=$(mktemp -d /data/.unpack.XXXX); mkdir -p "$tmp/out"
-  unshieldv3 extract "$data1" "$tmp/out" >/dev/null || { umount /mnt/cd; rm -rf "$tmp"; fail "The CD's data.1 archive could not be unpacked."; }
-  prog=$(find "$tmp/out" -maxdepth 2 -type d -iname prog | head -n1)
-  [ -n "$prog" ] && [ -f "$prog/Bryce 3D.exe" ] || { umount /mnt/cd; rm -rf "$tmp"; fail "Bryce 3D.exe was not found on this CD."; }
-  mkdir -p /data/bryce3d /data/cd
-  cp -a "$prog/." /data/bryce3d/
-  rel=${data1#/mnt/cd/}
-  bsdtar -cf - -C /mnt/cd --exclude "$rel" \
-      --exclude 'Adobe Acrobat Reader 3*' --exclude 'DirectX5*' --exclude 'OpenGL*' \
-      --exclude 'QuickTime Installer.EXE' --exclude 'SETUP.*' --exclude 'setup.*' --exclude '_*' . \
+  [ -n "$iso" ] || fail "Bryce is not installed yet and no CD image was given."
+  tmp=$(mktemp -d /data/.unpack.XXXX); out="$tmp/out"; mkdir -p "$out"
+  bail() { umount /mnt/cd; rm -rf "$tmp"; fail "$1"; }
+  find_cd() { find /mnt/cd -maxdepth 1 -iname "$1" -type f | head -n1; }
+  find_in() { find "$1" -maxdepth "$2" -type "$3" -iname "$4" | head -n1; }
+
+  # Recognise the CD. Bryce 4 comes first: its CD also carries a Bryce 3D
+  # update in data.1, but Bryce 4 itself is in data1.cab (newer InstallShield).
+  cab=$(find_cd data1.cab); data1=$(find_cd data.1)
+  if [ -n "$cab" ]; then
+    log "unpacking Bryce 4 from $iso"
+    unshield -D 0 -d "$out" x "$cab" >/dev/null || bail "The CD's data1.cab archive could not be unpacked."
+    prog=$(find_in "$out" 1 d 'Program_Files')
+    [ -n "$prog" ] && [ -f "$prog/Bryce4.exe" ] || bail "This CD has no Bryce 4 on it (Bryce4.exe was not found)."
+    mkdir -p /data/bryce4
+    cp -a "$prog/." /data/bryce4/
+    # Shared DLLs and the starting prefs/registration files go next to the program;
+    # the presets library and BryceTalk are subfolders of it.
+    for g in Program_DLLs Readme_files; do
+      [ -d "$out/$g" ] && cp -a "$out/$g/." /data/bryce4/
+    done
+    for g in Presets BryceTalk; do                     # group/folder -> program/folder
+      [ -d "$out/$g/$g" ] && cp -a "$out/$g/$g" /data/bryce4/
+    done
+    rm -f /data/bryce4/Readme.txt
+    write_conf bryce4 "Bryce 4" Bryce4.exe "metaimage.dll:Bryce4.dta" "Bryce4 Prefs"
+  elif [ -n "$data1" ]; then
+    unshieldv3 extract "$data1" "$out" >/dev/null || bail "The CD's data.1 archive could not be unpacked."
+    if [ -f "$out/prog/Bryce 3D.exe" ]; then
+      log "unpacking Bryce 3D from $iso"
+      mkdir -p /data/bryce3d
+      cp -a "$out/prog/." /data/bryce3d/
+      write_conf bryce3d "Bryce 3D" "Bryce 3D.exe" MetaImage.dll "Bryce 3D Prefs"
+    elif [ -f "$out/FILTER/Bryce2.exe" ]; then
+      log "unpacking Bryce 2 from $iso"
+      mkdir -p /data/bryce2
+      cp -a "$out/FILTER/." /data/bryce2/
+      # Its Microsoft C runtime (RT32) goes next to the program.
+      [ -d "$out/RT32" ] && cp -a "$out/RT32/MSVCRT40.DLL" "$out/RT32/MSVCRT.DLL" /data/bryce2/ 2>/dev/null
+      write_conf bryce2 "Bryce 2" Bryce2.exe MetaImage.dll ""
+    else
+      bail "No Bryce for Windows was found on this CD. Bryce 2, Bryce 3D and Bryce 4 are supported."
+    fi
+  else
+    bail "This is not a Bryce for Windows CD (it has no installer archive)."
+  fi
+
+  # The rest of the CD (libraries, sample scenes, textures) becomes drive D:,
+  # without the installers. Bryce checks the CD by its name, so keep that too.
+  rm -rf /data/cd; mkdir -p /data/cd
+  bsdtar -cf - -C /mnt/cd \
+      --exclude 'data.1' --exclude 'DATA.1' --exclude 'data1.*' --exclude 'DATA1.*' \
+      --exclude '_*' --exclude 'SETUP.*' --exclude 'setup.*' --exclude 'Setup.*' \
+      --exclude 'layout.bin' --exclude 'lang.dat' --exclude 'os.dat' --exclude 'DISK1.ID' --exclude 'DATA.TAG' \
+      --exclude 'Adobe Acrobat Reader*' --exclude 'DirectX5*' --exclude 'OpenGL*' \
+      --exclude 'QuickTime*' . \
     | bsdtar -xf - -C /data/cd
+  label=$(blkid -o value -s LABEL "$iso" 2>/dev/null)
+  [ -n "$label" ] || label=$(dd if="$iso" bs=1 skip=32808 count=32 2>/dev/null | tr -d '\0' | sed 's/ *$//')
+  [ -n "$label" ] && printf '%s\n' "$label" > /data/cd/.windows-label
   rm -rf "$tmp"; umount /mnt/cd
-  chmod -R u+rwX /data/bryce3d /data/cd
+  . "$conf"
+  chmod -R u+rwX "$DIR" /data/cd
   touch /run/bryce-uid-changed
-  log "Bryce 3D unpacked"
+  log "$NAME unpacked"
 fi
+. "$conf"
+
 # Maintenance requested in the Mac app's settings (bryce.reset=registration,prefs).
 for what in $(arg bryce.reset | tr ',' ' '); do
   case "$what" in
-    registration) rm -f /data/bryce3d/MetaImage.dll && log "registration reset" ;;
-    prefs)        rm -f "/data/bryce3d/Bryce 3D Prefs" && log "Bryce settings reset" ;;
+    registration) (IFS=:; for f in $REGFILE; do rm -f "$DIR/$f"; done); log "registration reset" ;;
+    prefs)        [ -n "$PREFS" ] && rm -f "$DIR/$PREFS" && log "Bryce settings reset" ;;
   esac
 done
 
+# Content CDs (extra discs: libraries, sample scenes). bryce.addcd=1: copy the
+# attached disc to /data/extra/LABEL once; bryce-launch gives each its own drive.
+# bryce.reset=content:LABEL removes one.
+for what in $(arg bryce.reset | tr ',' ' '); do
+  case "$what" in
+    content:*) l=${what#content:}; [ -n "$l" ] && rm -rf "/data/extra/$l" && log "content CD $l removed" ;;
+  esac
+done
+if [ "$(arg bryce.addcd)" = 1 ]; then
+  modprobe isofs 2>/dev/null; mkdir -p /mnt/cd
+  iso=""
+  for d in /dev/vd[b-z]; do
+    [ -b "$d" ] && [ "$d" != "$data" ] || continue
+    if mount -o ro -t iso9660 "$d" /mnt/cd 2>/dev/null; then iso=$d; break; fi
+  done
+  if [ -z "$iso" ]; then
+    tell "cderror The content CD image could not be read."
+  else
+    label=$(blkid -o value -s LABEL "$iso" 2>/dev/null)
+    [ -n "$label" ] || label=$(dd if="$iso" bs=1 skip=32808 count=32 2>/dev/null | tr -d '\0' | sed 's/ *$//')
+    label=$(printf '%s' "$label" | tr -c 'A-Za-z0-9_-' '_' | cut -c1-32); [ -n "$label" ] || label=CD
+    log "copying content CD $label"
+    rm -rf "/data/extra/$label"; mkdir -p "/data/extra/$label"
+    if bsdtar -cf - -C /mnt/cd . | bsdtar -xf - -C "/data/extra/$label"; then
+      printf '%s\n' "$label" > "/data/extra/$label/.windows-label"
+      chmod -R u+rwX "/data/extra/$label"; touch /run/bryce-uid-changed
+      tell "cdadded $label"
+    else
+      rm -rf "/data/extra/$label"
+      tell "cderror The content CD could not be copied (is the disk full?)."
+    fi
+    umount /mnt/cd
+  fi
+fi
+
 # Report on every boot, so the Mac app knows Bryce is installed even if an
-# earlier report was missed.
-tell installed
+# earlier report was missed, and which content CDs there are.
+tell "installed $NAME"
+tell "content $(ls /data/extra 2>/dev/null | tr '\n' ' ')"
 [ -e /run/bryce-uid-changed ] && chown -R bryce:bryce /data /home/bryce/.?* 2>/dev/null
 chown bryce:bryce /data
 exit 0

@@ -1,5 +1,5 @@
 [Unit]
-Description=Bryce 3D session (Xorg + Openbox + Bryce)
+Description=Bryce session (Xorg + Openbox + Bryce)
 After=systemd-udev-settle.service systemd-user-sessions.service
 Wants=systemd-udev-settle.service
 
