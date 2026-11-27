@@ -28,7 +28,7 @@ jobs:
           for f in vm/*.sh vm/guest/usr/local/bin/bryce-* vm/guest/usr/local/sbin/bryce-init; do
             head -1 "$f" | grep -q python || bash -n "$f"
           done
-          python3 -m py_compile vm/guest/usr/local/bin/bryce-input vm/guest/usr/local/bin/bryce-stack
+          python3 -m py_compile vm/guest/usr/local/bin/bryce-input vm/guest/usr/local/bin/bryce-stack vm/guest/usr/local/bin/bryce-unzip-sfx
 
       - name: Build the runtime image
         run: vm/build-image.sh "$RUNNER_TEMP/runtime"

@@ -67,7 +67,7 @@ RUN command -v Xorg xrandr setxkbmap openbox wine python3 spice-vdagent spice-vd
 
 COPY guest/ /
 RUN chmod 755 /usr/local/bin/bryce-session /usr/local/bin/bryce-firstboot /usr/local/bin/bryce-launch \
-      /usr/local/bin/bryce-input /usr/local/bin/bryce-stack /usr/local/bin/bryce-control /usr/local/sbin/bryce-init \
+      /usr/local/bin/bryce-input /usr/local/bin/bryce-stack /usr/local/bin/bryce-unzip-sfx /usr/local/bin/bryce-control /usr/local/sbin/bryce-init \
  && systemctl enable bryce-session.service \
  && systemctl mask spice-vdagentd.service spice-vdagentd.socket \
  && systemctl mask getty@tty1.service systemd-networkd-wait-online.service \

@@ -10,11 +10,15 @@ log() { echo "[bryce-launch] $*"; }
 
 if [ ! -f "$WINEPREFIX/.ready" ]; then
   log "creating the Wine prefix"
+  # Leftovers of an interrupted attempt would look up to date to wineboot.
+  rm -rf "$WINEPREFIX"
   wineboot --init >/dev/null 2>&1
   wineserver -w
   wine regedit /etc/bryce/bryce.reg >/dev/null 2>&1
   wineserver -w
+  sync
   touch "$WINEPREFIX/.ready"
+  sync
 fi
 # Settings added after a prefix was created (applied once per settings version).
 if [ "$(cat "$WINEPREFIX/.settings" 2>/dev/null)" != 3 ]; then
@@ -30,6 +34,11 @@ if [ "$(cat "$WINEPREFIX/.settings" 2>/dev/null)" != 3 ]; then
   wine reg add "$x11" /v UseXRandR /d N /f >/dev/null 2>&1
   wineserver -w
   echo 3 > "$WINEPREFIX/.settings"
+fi
+# QuickTime 3 (Bryce 4), unpacked from the CD by bryce-firstboot: Bryce finds
+# it in the Windows system folder (the 32-bit one, syswow64).
+if [ -d /data/quicktime ]; then
+  cp -u /data/quicktime/* "$WINEPREFIX/drive_c/windows/syswow64/"
 fi
 win=$(basename "$DIR" | sed 's/^bryce/Bryce/; s/3d$/3D/')      # bryce3d -> Bryce3D
 ln -sfn "$DIR" "$WINEPREFIX/drive_c/$win"

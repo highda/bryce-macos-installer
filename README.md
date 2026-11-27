@@ -106,7 +106,7 @@ Window size, keyboard and maintenance changes apply the next time Bryce starts; 
 * **Speed.** Bryce renders on one processor core (it was written that way), so a render uses one core, however many your Mac has.
 * **Timeline playback** plays as fast as your Mac can draw the frames, much faster than real time. Bryce never timed its preview; rendered movies play at the right speed.
 * **Dragging files** from Finder into the Bryce window isn't possible. Put them in Documents › Bryce and open them from E:\\ in Bryce.
-* **Bryce 4 and QuickTime.** Bryce 4's installer wanted QuickTime 3, which isn't installed. Bryce 4 runs without it; features that rely on QuickTime (such as QuickTime movie export) may not work.
+* **Bryce 4 and QuickTime.** Bryce 4 saves JPEG images, QuickTime movies and QuickTime VR through QuickTime 3. The app installs it from your Bryce 4 CD (`QuickTime30.exe`) along with Bryce. These formats show up from the second start of Bryce 4 on, so quit and reopen Bryce once after registering.
 * **Disk space:** the app takes about 1.6 GB; Bryce and its settings about 1.5 GB more, plus content CDs, in `~/Library/Application Support/Bryce`.
 
 ## Uninstall
@@ -144,7 +144,7 @@ Bryce.app  (Swift, Apple Virtualization framework, native window,
        Documents › Bryce is shared into the VM (virtiofs)
 ```
 
-On the first start the VM unpacks Bryce from the CD's InstallShield archive (the old installers never run): `data.1` of Bryce 2 and Bryce 3D with [unshieldv3](https://github.com/wfr/unshieldv3), `data1.cab` of Bryce 4 with [unshield](https://github.com/twogood/unshield).
+On the first start the VM unpacks Bryce from the CD's InstallShield archive (the old installers never run): `data.1` of Bryce 2 and Bryce 3D with [unshieldv3](https://github.com/wfr/unshieldv3), `data1.cab` of Bryce 4 with [unshield](https://github.com/twogood/unshield). Bryce 4's QuickTime 3 installer is 16-bit, which can't run here either, so its files are unpacked from the self-extractor and its InstallShield 3 archive the same way.
 
 ## Building from source
 

@@ -1,0 +1,34 @@
+#!/usr/bin/python3
+# bryce-unzip-sfx EXE OUTDIR: extracts the files of a 1990s self-extracting
+# installer (e.g. QuickTime30.exe on the Bryce 4 CD). Its files are stored
+# under ordinary ZIP local headers, but the archive's directory lists only some
+# of them, so the headers are read directly. Only plain file names, and only
+# entries whose size and CRC check out, are written.
+import os
+import struct
+import sys
+import zlib
+
+exe, out = sys.argv[1], sys.argv[2]
+b = open(exe, "rb").read()
+os.makedirs(out, exist_ok=True)
+i = 0
+n = 0
+while (i := b.find(b"PK\x03\x04", i)) >= 0:
+    meth, crc, csize, usize, nlen, xlen = struct.unpack("<4xH4xIIIHH", b[i + 4:i + 30])
+    name = b[i + 30:i + 30 + nlen].decode("latin-1")
+    start = i + 30 + nlen + xlen
+    data = b[start:start + csize]
+    try:
+        if meth == 8:
+            data = zlib.decompress(data, -15)
+        ok = meth in (0, 8) and len(data) == usize and zlib.crc32(data) == crc
+    except zlib.error:
+        ok = False
+    if ok and name and "/" not in name and "\\" not in name and name not in (".", ".."):
+        with open(os.path.join(out, name), "wb") as f:
+            f.write(data)
+        n += 1
+    i = start + csize if ok and csize else i + 4
+print(f"{n} files extracted")
+sys.exit(0 if n else 1)

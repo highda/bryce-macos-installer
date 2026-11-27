@@ -269,6 +269,9 @@ func makeConfiguration(_ o: Options, display: Display, control: Pipe, fromGuest:
         + (Prefs.commandAsControl ? " bryce.cmdctrl=1" : "")
         + (Prefs.pendingResets.isEmpty ? "" : " bryce.reset=" + Prefs.pendingResets.joined(separator: ","))
         + (contentCD(o) != nil ? " bryce.addcd=1" : "")
+        // The kernel thread that feeds the virtio RNG into the entropy pool hit a
+        // stack-corruption panic once; the kernel has enough entropy without it.
+        + " rng_core.default_quality=0"
         + (o.debug ? " bryce.debug=1" : " quiet")
 
     let cfg = VZVirtualMachineConfiguration()

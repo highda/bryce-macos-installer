@@ -88,6 +88,23 @@ if [ ! -f "$conf" ]; then
       [ -d "$out/$g/$g" ] && cp -a "$out/$g/$g" /data/bryce4/
     done
     rm -f /data/bryce4/Readme.txt
+    # QuickTime 3 from the same CD (Bryce 4 saves JPEG, QuickTime movies and
+    # QuickTime VR through it). Its installer is 16-bit and can't run here, so
+    # unpack it: self-extractor -> data.z (InstallShield 3) -> the system files,
+    # which bryce-launch puts in Wine's system folder.
+    qtexe=$(find_cd 'QuickTime*.exe')
+    if [ -n "$qtexe" ] && bryce-unzip-sfx "$qtexe" "$tmp/qt" >/dev/null \
+       && mkdir -p "$tmp/qtfiles" && unshieldv3 extract "$tmp/qt/data.z" "$tmp/qtfiles" >/dev/null; then
+      mkdir -p /data/quicktime
+      for f in QuickTime.qts QuickTime.cpl qd3d.dll rave.dll IR41_QC.dll IR41_QCX.dll; do
+        [ -f "$tmp/qtfiles/$f" ] && cp "$tmp/qtfiles/$f" /data/quicktime/
+      done
+      cp "$tmp/qtfiles/"*.qtx "$tmp/qtfiles/"*.q3x /data/quicktime/ 2>/dev/null
+      [ -f "$tmp/qt/QTtext.dll" ] && cp "$tmp/qt/QTtext.dll" /data/quicktime/
+      log "QuickTime 3 unpacked from the CD"
+    else
+      log "QuickTime not installed (not found on the CD or could not be unpacked)"
+    fi
     write_conf bryce4 "Bryce 4" Bryce4.exe "metaimage.dll:Bryce4.dta" "Bryce4 Prefs"
   elif [ -n "$data1" ]; then
     unshieldv3 extract "$data1" "$out" >/dev/null || bail "The CD's data.1 archive could not be unpacked."
@@ -127,6 +144,7 @@ if [ ! -f "$conf" ]; then
   . "$conf"
   chmod -R u+rwX "$DIR" /data/cd
   touch /run/bryce-uid-changed
+  sync
   log "$NAME unpacked"
 fi
 . "$conf"
@@ -165,6 +183,7 @@ if [ "$(arg bryce.addcd)" = 1 ]; then
     if bsdtar -cf - -C /mnt/cd . | bsdtar -xf - -C "/data/extra/$label"; then
       printf '%s\n' "$label" > "/data/extra/$label/.windows-label"
       chmod -R u+rwX "/data/extra/$label"; touch /run/bryce-uid-changed
+      sync
       tell "cdadded $label"
     else
       rm -rf "/data/extra/$label"
